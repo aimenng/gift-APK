@@ -25,9 +25,11 @@ const parseBoolean = (value, fallback = false) => {
   return fallback;
 };
 
+const runtimeVercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
+
 export const config = {
   port: parseNumber(process.env.PORT, 8787),
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  corsOrigin: process.env.CORS_ORIGIN || (runtimeVercelUrl ? '*' : 'http://localhost:3000'),
   jwtSecret: String(process.env.JWT_SECRET || '').trim(),
   jwtExpiresIn: String(process.env.JWT_EXPIRES_IN || '7d').trim() || '7d',
   jwtIssuer: String(process.env.JWT_ISSUER || 'gifts-backend').trim() || 'gifts-backend',
@@ -40,8 +42,9 @@ export const config = {
   maxImageBytes: parseBoundedInt(process.env.MAX_IMAGE_BYTES, 10 * 1024 * 1024, 256 * 1024, 50 * 1024 * 1024),
   memoryPageDefaultLimit: parseBoundedInt(process.env.MEMORIES_PAGE_DEFAULT_LIMIT, 50, 1, 200),
   memoryPageMaxLimit: parseBoundedInt(process.env.MEMORIES_PAGE_MAX_LIMIT, 100, 10, 500),
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-  backendPublicUrl: process.env.BACKEND_PUBLIC_URL || `http://localhost:${parseNumber(process.env.PORT, 8787)}`,
+  frontendUrl: process.env.FRONTEND_URL || runtimeVercelUrl || 'http://localhost:3000',
+  backendPublicUrl:
+    process.env.BACKEND_PUBLIC_URL || runtimeVercelUrl || `http://localhost:${parseNumber(process.env.PORT, 8787)}`,
   verificationCodeTtlMinutes: parseNumber(process.env.VERIFICATION_CODE_TTL_MINUTES, 10),
   verificationMaxAttempts: parseBoundedInt(process.env.VERIFICATION_MAX_ATTEMPTS, 5, 1, 20),
   authUniformMinLatencyMs: parseBoundedInt(process.env.AUTH_UNIFORM_MIN_LATENCY_MS, 650, 200, 5000),
