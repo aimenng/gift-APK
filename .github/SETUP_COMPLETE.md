@@ -45,7 +45,7 @@
 ## 📖 详细文档
 
 查看完整的设置和使用说明：
-- 中文：[GPT_CODE_REVIEW_SETUP.md](.github/GPT_CODE_REVIEW_SETUP.md)
+- 中文: [GPT_CODE_REVIEW_SETUP.md](.github/GPT_CODE_REVIEW_SETUP.md)
 - English: [GPT_CODE_REVIEW_SETUP_EN.md](.github/GPT_CODE_REVIEW_SETUP_EN.md)
 
 ## 💰 成本说明
