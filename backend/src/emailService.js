@@ -19,17 +19,20 @@ const getTransporter = () => {
     );
   }
 
-  // Use pooled SMTP connection to reduce repeated handshake latency.
+  // In serverless environments (Vercel), avoid pooled connections —
+  // each invocation may be a fresh container, so pool keep-alive adds overhead.
+  const isServerless = !!process.env.VERCEL;
+
   transporter = nodemailer.createTransport({
     host,
     port,
     secure,
-    pool: true,
-    maxConnections: 5,
-    maxMessages: 100,
-    connectionTimeout: 12_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 15_000,
+    ...(isServerless
+      ? { pool: false }
+      : { pool: true, maxConnections: 5, maxMessages: 100 }),
+    connectionTimeout: 15_000,
+    greetingTimeout: 12_000,
+    socketTimeout: 20_000,
     auth: {
       user,
       pass,
