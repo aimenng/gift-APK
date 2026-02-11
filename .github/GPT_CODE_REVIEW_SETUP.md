@@ -61,8 +61,8 @@ env:
   MODEL: gpt-4              # 可选: gpt-4, gpt-4-turbo, gpt-3.5-turbo
   LANGUAGE: zh-CN           # 可选: zh-CN (中文), en-US (英文)
   MAX_TOKENS: 2000          # 每次审查的最大 token 数
-  temperature: 0.3          # 0-1 之间，值越低输出越确定
-  top_p: 0.9               # 0-1 之间，控制输出多样性
+  TEMPERATURE: 0.3          # 0-1 之间，值越低输出越确定
+  TOP_P: 0.9               # 0-1 之间，控制输出多样性
 ```
 
 ## 成本估算

@@ -61,8 +61,8 @@ env:
   MODEL: gpt-4              # Options: gpt-4, gpt-4-turbo, gpt-3.5-turbo
   LANGUAGE: zh-CN           # Options: zh-CN (Chinese), en-US (English)
   MAX_TOKENS: 2000          # Maximum tokens per review
-  temperature: 0.3          # 0-1, lower = more deterministic
-  top_p: 0.9               # 0-1, controls output diversity
+  TEMPERATURE: 0.3          # 0-1, lower = more deterministic
+  TOP_P: 0.9               # 0-1, controls output diversity
 ```
 
 ## Cost Estimation
