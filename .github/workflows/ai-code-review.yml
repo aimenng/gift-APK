@@ -25,8 +25,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LANGUAGE: zh-CN
-          MODEL: gpt-4
+          MODEL: gpt-4-turbo-preview
           OPENAI_API_ENDPOINT: https://api.openai.com/v1
-          MAX_TOKENS: 2000
-          TEMPERATURE: 0.3
-          TOP_P: 0.9
+          MAX_TOKENS: 4096
+          TEMPERATURE: 0.2
+          TOP_P: 0.95

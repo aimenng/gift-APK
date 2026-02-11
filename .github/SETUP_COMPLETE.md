@@ -1,10 +1,11 @@
-# GPT-4 代码审查已成功启用！
+# GPT-4 Turbo 顶配代码审查已成功启用！
 
 ## ✅ 已完成的配置
 
 1. **创建 GitHub Actions 工作流** 
    - 文件：`.github/workflows/ai-code-review.yml`
    - 功能：自动审查所有 Pull Request
+   - **升级到 GPT-4 Turbo Preview 顶配**
 
 2. **详细设置文档**
    - 中文文档：`.github/GPT_CODE_REVIEW_SETUP.md`
@@ -34,13 +35,16 @@
 2. 等待 "AI Code Review" workflow 运行
 3. 查看 PR 中的 AI 审查评论
 
-## 📋 功能特性
+## 🔧 配置详情（**顶级配置**）
 
-- ✨ 使用 GPT-4 模型
+- ✨ 使用 **GPT-4 Turbo Preview** 模型（最新最强）
 - 🌏 中文审查反馈
 - 🤖 自动触发于 PR 创建/更新
 - 💬 直接在代码行上留下评论
 - 🔍 识别潜在问题和改进建议
+- 📊 **4096 tokens**：支持更详细深入的代码分析
+- 🎯 **Temperature 0.2**：更精确一致的输出
+- 🚀 **更高性价比**：性能更强但成本更低
 
 ## 📖 详细文档
 
@@ -48,12 +52,15 @@
 - 中文: [GPT_CODE_REVIEW_SETUP.md](.github/GPT_CODE_REVIEW_SETUP.md)
 - English: [GPT_CODE_REVIEW_SETUP_EN.md](.github/GPT_CODE_REVIEW_SETUP_EN.md)
 
-## 💰 成本说明
+## 💰 成本说明（**更实惠的顶配**）
 
-- GPT-4 API 按使用量计费
-- 每次审查约 500-2000 tokens
+GPT-4 Turbo Preview 定价：
+- 输入：$0.01/1K tokens（比标准 GPT-4 便宜 67%）
+- 输出：$0.03/1K tokens（比标准 GPT-4 便宜 50%）
+- 每次审查约 $0.05-0.15
 - 建议在 OpenAI 账户设置月度预算上限
-- 详细价格：约 $0.03/1K tokens (输入) + $0.06/1K tokens (输出)
+
+💡 **优势**：虽然使用了更强大的模型和 4096 tokens 容量，但 GPT-4 Turbo 的价格更低，性价比极高！
 
 ## 🔒 安全提示
 

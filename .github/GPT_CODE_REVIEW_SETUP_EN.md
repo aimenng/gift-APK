@@ -1,13 +1,14 @@
-# GPT-4 Code Review Setup Guide
+# GPT-4 Turbo Premium Code Review Setup Guide
 
-This repository has GPT-4 powered automated code review enabled.
+This repository has **GPT-4 Turbo Preview** powered automated code review enabled with premium configuration for the best code review experience.
 
 ## Features
 
 - ✅ Automatically reviews all Pull Request code changes
-- ✅ Uses GPT-4 model for intelligent code suggestions
+- ✅ Uses **GPT-4 Turbo Preview** model (latest and most powerful)
 - ✅ Supports Chinese feedback
 - ✅ Identifies code issues, potential bugs, and improvement suggestions
+- ✅ **Premium Configuration**: Higher token capacity, more precise output
 
 ## Setup Steps
 
@@ -67,9 +68,14 @@ env:
 
 ## Cost Estimation
 
-- GPT-4: ~$0.03/1K tokens (input) + $0.06/1K tokens (output)
-- Each code review typically uses 500-2000 tokens
+GPT-4 Turbo Preview pricing (**More Affordable**):
+- Input: $0.01/1K tokens (67% cheaper than GPT-4)
+- Output: $0.03/1K tokens (50% cheaper than GPT-4)
+- Each code review typically uses 1000-4000 tokens
+- Estimated cost: ~$0.05-0.15 per review
 - Recommend setting monthly budget limits in OpenAI account
+
+💡 **Tip**: Despite using a more powerful model and larger token capacity, GPT-4 Turbo is more cost-effective!
 
 ## Important Notes
 
