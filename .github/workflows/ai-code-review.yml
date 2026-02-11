@@ -1,0 +1,32 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-code-review:
+    runs-on: ubuntu-latest
+    name: GPT Code Review
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: AI Code Review
+        uses: anc95/ChatGPT-CodeReview@v1.0.23
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGUAGE: zh-CN
+          MODEL: gpt-4-turbo-preview
+          OPENAI_API_ENDPOINT: https://api.openai.com/v1
+          MAX_TOKENS: 4096
+          TEMPERATURE: 0.2
+          TOP_P: 0.95

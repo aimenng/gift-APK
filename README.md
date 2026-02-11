@@ -8,6 +8,10 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/temp/1
 
+## AI Code Review
+
+This repository has GPT-powered automated code review enabled. See [setup instructions](.github/GPT_CODE_REVIEW_SETUP.md) ([English](.github/GPT_CODE_REVIEW_SETUP_EN.md)) for configuration details.
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
