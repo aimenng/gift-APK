@@ -61,9 +61,24 @@ foreach ($folder in $sizes.Keys) {
     # Save as PNG
     $resized.Save($iconPath, [System.Drawing.Imaging.ImageFormat]::Png)
     
-    # Round icon (same for now)
+    # Round icon with circular mask
+    $round = New-Object System.Drawing.Bitmap $size, $size
+    $gr = [System.Drawing.Graphics]::FromImage($round)
+    $gr.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $gr.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    
+    # Create circular path
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddEllipse(0, 0, $size, $size)
+    $gr.SetClip($path)
+    
+    $gr.DrawImage($cropped, 0, 0, $size, $size)
+    
     $roundPath = Join-Path $targetPath "ic_launcher_round.png"
-    $resized.Save($roundPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    $round.Save($roundPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    
+    $gr.Dispose()
+    $round.Dispose()
     
     $g2.Dispose()
     $resized.Dispose()
