@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { requireAuth, signToken } from '../auth.js';
 import { mapUser } from '../mappers.js';

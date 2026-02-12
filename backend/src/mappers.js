@@ -4,7 +4,6 @@ export const mapUser = (row) => {
   return {
     id: row.id,
     email: row.email,
-    passwordHash: '',
     invitationCode: row.invitation_code || '',
     boundInvitationCode: row.bound_invitation_code || '',
     emailVerified: Boolean(row.email_verified),

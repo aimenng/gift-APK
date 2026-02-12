@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import crypto from 'node:crypto';
 import { requireAuth } from '../auth.js';
 import { mapEvent, mapMemory, mapNotification, mapSettings } from '../mappers.js';

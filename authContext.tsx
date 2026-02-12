@@ -121,6 +121,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [refreshAuthData]);
 
+  /**
+   * Local-only check: returns true when `email` matches a user already loaded
+   * into the auth state (current user or their partner).  This does NOT query
+   * the backend, so it cannot detect emails registered by other accounts.
+   */
   const isEmailTaken = (email: string) =>
     users.some((u) => u.email.toLowerCase() === email.toLowerCase());
 
