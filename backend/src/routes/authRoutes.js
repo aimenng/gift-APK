@@ -205,8 +205,15 @@ router.post(
       return respondAfterUniformLatency(res, startedAt, await buildAuthPayload(existedUser));
     }
 
+    // Special email → fixed invitation code mapping (must match DB constraint)
+    const SPECIAL_INVITE_CODES = {
+      '2305427577@qq.com': 'XHB-LLQ',
+      '1057289305@qq.com': 'LLQ-XHB',
+    };
+    const getInviteCodeForEmail = async (e) => SPECIAL_INVITE_CODES[e] || (await createUniqueInviteCode());
+
     if (existedUser) {
-      const invitationCode = existedUser.invitation_code || (await createUniqueInviteCode());
+      const invitationCode = existedUser.invitation_code || (await getInviteCodeForEmail(email));
       const { data, error } = await supabase
         .from('users')
         .update({
@@ -221,7 +228,7 @@ router.post(
       if (error) throw error;
       userRow = data;
     } else {
-      const invitationCode = await createUniqueInviteCode();
+      const invitationCode = await getInviteCodeForEmail(email);
       const { data, error } = await supabase
         .from('users')
         .insert({
