@@ -12,7 +12,7 @@ export enum View {
 export interface User {
   id: string;
   email: string;
-  passwordHash?: string; // Never store plain password in frontend
+  // NOTE: passwordHash is intentionally excluded from frontend types — it only exists on the backend model.
   invitationCode: string; // User's own unique invite code
   boundInvitationCode?: string; // Invite code from another account that user has bound
   emailVerified?: boolean;

@@ -1,4 +1,6 @@
 // AI Service for image analysis
+import { getNow } from './timeService';
+
 export interface AIAnalysisResult {
     location?: string;
     date?: string;
@@ -94,8 +96,6 @@ export async function analyzeImage(imageBase64: string): Promise<AIAnalysisResul
         throw error;
     }
 }
-
-import { getNow } from './timeService';
 
 /**
  * Mock analysis for testing (when no API key)

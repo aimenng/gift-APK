@@ -167,15 +167,6 @@ const dedupeRecentDuplicateEvents = (items: AnniversaryEvent[]): AnniversaryEven
   return deduped;
 };
 
-const chunkItems = <T,>(items: T[], size: number): T[][] => {
-  if (size <= 0) return [items];
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-};
-
 const estimatePayloadBytes = (payload: unknown): number => {
   try {
     return new Blob([JSON.stringify(payload)]).size;
@@ -683,11 +674,6 @@ export const calculateDaysTogether = (startDate: string): number => {
 export const calculateDateDiff = (targetDate: string): number => {
   return calculateNextOccurrence(targetDate);
 };
-
-
-
-
-
 
 
 

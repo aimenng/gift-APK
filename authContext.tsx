@@ -75,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
-  const resetAuthState = () => {
+  const resetAuthState = useCallback(() => {
     setCurrentUser(null);
     setPartner(null);
     setUsers([]);
@@ -83,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     cancelCloudWarmup();
     clearFocusStatsCache();
     clearPeriodTrackerCache();
-  };
+  }, []);
 
   const refreshAuthData = useCallback(async () => {
     const token = getAuthToken();
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetAuthState();
       }
     }
-  }, []);
+  }, [resetAuthState]);
 
   useEffect(() => {
     refreshAuthData();
