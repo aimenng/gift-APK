@@ -1,0 +1,127 @@
+apply plugin: 'com.android.application'
+
+import java.util.Properties
+
+final Properties keystoreProperties = new Properties()
+final File keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+final int appVersionCode = (project.findProperty('APP_VERSION_CODE') ?: '1') as Integer
+final String appVersionName = String.valueOf(project.findProperty('APP_VERSION_NAME') ?: '1.0.0')
+final String appIdBase = String.valueOf(project.findProperty('APP_ID_BASE') ?: 'com.gifts.coupleconnection')
+final String appIdXiaomi = String.valueOf(project.findProperty('APP_ID_XIAOMI') ?: appIdBase + '.mi')
+final String appIdHuawei = String.valueOf(project.findProperty('APP_ID_HUAWEI') ?: appIdBase + '.hw')
+
+android {
+    namespace "com.gifts.coupleconnection"
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId appIdBase
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersionCode
+        versionName appVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+
+        aaptOptions {
+            // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+            // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    flavorDimensions += ["channel"]
+    productFlavors {
+        official {
+            dimension "channel"
+            applicationId appIdBase
+            resValue 'string', 'app_name', 'Couple Connection'
+            manifestPlaceholders = [channelName: 'official']
+        }
+        xiaomi {
+            dimension "channel"
+            applicationId appIdXiaomi
+            resValue 'string', 'app_name', 'Couple Connection 小米版'
+            versionNameSuffix '-xm'
+            manifestPlaceholders = [channelName: 'xiaomi']
+        }
+        huawei {
+            dimension "channel"
+            applicationId appIdHuawei
+            resValue 'string', 'app_name', 'Couple Connection 华为版'
+            versionNameSuffix '-hw'
+            manifestPlaceholders = [channelName: 'huawei']
+        }
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+            universalApk true
+        }
+    }
+
+}
+
+repositories {
+    flatDir {
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch (Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

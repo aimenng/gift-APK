@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Couple Connection</string>
+    <string name="title_activity_main">Couple Connection</string>
+    <string name="package_name">com.gifts.coupleconnection</string>
+    <string name="custom_url_scheme">com.gifts.coupleconnection</string>
+</resources>

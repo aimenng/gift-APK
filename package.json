@@ -12,9 +12,20 @@
     "start:backend": "node backend/src/index.js",
     "build": "vite build",
     "preview": "vite preview",
-    "check:text-encoding": "node scripts/check-text-encoding.mjs"
+    "check:text-encoding": "node scripts/check-text-encoding.mjs",
+    "build:mobile": "npm run build && npx cap sync android",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:apk": "npm run build:mobile && bash scripts/bootstrap-gradle-wrapper.sh && cd android && ./gradlew assembleDebug",
+    "android:sdk:setup": "bash scripts/setup-android-sdk.sh",
+    "android:keystore:create": "bash scripts/create-android-keystore.sh",
+    "android:apk:release": "npm run build:mobile && bash scripts/bootstrap-gradle-wrapper.sh && cd android && ./gradlew assembleOfficialRelease",
+    "android:bundle:release": "npm run build:mobile && bash scripts/bootstrap-gradle-wrapper.sh && cd android && ./gradlew bundleOfficialRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^7.5.0",
+    "@capacitor/core": "^8.1.0",
     "@supabase/supabase-js": "^2.95.3",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",

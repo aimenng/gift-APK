@@ -1,6 +1,14 @@
 import { getAuthToken } from './authToken';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+const env = (import.meta as any).env || {};
+const isNativePlatform =
+  typeof window !== 'undefined' && typeof (window as any).Capacitor?.isNativePlatform === 'function'
+    ? Boolean((window as any).Capacitor.isNativePlatform())
+    : false;
+
+const DEFAULT_NATIVE_API_BASE_URL = 'http://10.0.2.2:3001/api';
+const API_BASE_URL =
+  env.VITE_API_BASE_URL || (isNativePlatform ? env.VITE_API_BASE_URL_MOBILE || DEFAULT_NATIVE_API_BASE_URL : '/api');
 const REQUEST_TIMEOUT_MS = 60_000;
 const WRITE_REQUEST_TIMEOUT_MS = 45_000;
 const RETRY_TIMES = 1;
