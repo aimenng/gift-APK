@@ -23,27 +23,101 @@ $height = $srcInfo.Height
 
 Write-Host "Source Image: $width x $height"
 
-# Calculate crop
-$cropMargin = [int][math]::Round($width * 0.07)
-$cropSize = [int]($width - ($cropMargin * 2))
-
-Write-Host "Crop Margin: $cropMargin, Crop Size: $cropSize"
-
-if ($cropSize -le 0) {
-    Write-Error "Invalid crop size"
-    exit 1
+# Function to find content bounds (trim white/light background)
+function Get-ContentBounds($bmp) {
+    $width = $bmp.Width
+    $height = $bmp.Height
+    $minX = $width
+    $minY = $height
+    $maxX = 0
+    $maxY = 0
+    
+    # Simple threshold for "not white"
+    $threshold = 240 
+    
+    for ($y = 0; $y -lt $height; $y++) {
+        for ($x = 0; $x -lt $width; $x++) {
+            $pixel = $bmp.GetPixel($x, $y)
+            # Check if pixel is NOT white/light
+            if ($pixel.R -lt $threshold -or $pixel.G -lt $threshold -or $pixel.B -lt $threshold) {
+                if ($x -lt $minX) { $minX = $x }
+                if ($x -gt $maxX) { $maxX = $x }
+                if ($y -lt $minY) { $minY = $y }
+                if ($y -gt $maxY) { $maxY = $y }
+            }
+        }
+    }
+    
+    if ($maxX -lt $minX) { return $null } # Found nothing
+    
+    $w = $maxX - $minX + 1
+    $h = $maxY - $minY + 1
+    
+    # Make it square
+    if ($w -gt $h) {
+        $diff = $w - $h
+        $minY -= [math]::Floor($diff / 2)
+        $h = $w
+    }
+    elseif ($h -gt $w) {
+        $diff = $h - $w
+        $minX -= [math]::Floor($diff / 2)
+        $w = $h
+    }
+    
+    # Clamp bounds
+    if ($minX -lt 0) { $minX = 0 }
+    if ($minY -lt 0) { $minY = 0 }
+    if ($minX + $w -gt $width) { $w = $width - $minX }
+    if ($minY + $h -gt $height) { $h = $height - $minY }
+    
+    return New-Object System.Drawing.Rectangle $minX, $minY, $w, $h
 }
 
-$cropRect = New-Object System.Drawing.Rectangle $cropMargin, $cropMargin, $cropSize, $cropSize
-$destRect = New-Object System.Drawing.Rectangle 0, 0, $cropSize, $cropSize
+Write-Host "Detecting content bounds..."
+$trimRect = Get-ContentBounds $srcInfo
+if ($trimRect -eq $null) {
+    Write-Warning "Could not detect bounds, using full image."
+    $trimRect = New-Object System.Drawing.Rectangle 0, 0, $width, $height
+}
+else {
+    Write-Host "Found bounds: $($trimRect.X), $($trimRect.Y), $($trimRect.Width), $($trimRect.Height)"
+}
 
+# Crop to detected bounds
+$cropSize = $trimRect.Width
 $cropped = New-Object System.Drawing.Bitmap $cropSize, $cropSize
 $g = [System.Drawing.Graphics]::FromImage($cropped)
 $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-$g.DrawImage($srcInfo, $destRect, $cropRect, [System.Drawing.GraphicsUnit]::Pixel)
+
+# Create a brush/attributes to make white transparent? 
+# JPG compression makes this hard. Better to just crop tight.
+# Or apply a "Squircle" mask to the result to force clean corners?
+# User said "rounded, not circle". Let's apply a Squircle mask and crop tight.
+
+$g.DrawImage($srcInfo, (New-Object System.Drawing.Rectangle 0, 0, $cropSize, $cropSize), $trimRect, [System.Drawing.GraphicsUnit]::Pixel)
+
+# Apply Squircle Mask (Rounded Corners) to cleaning up edges
+$squircle = New-Object System.Drawing.Drawing2D.GraphicsPath
+$corner = [int]($cropSize * 0.22) # Large rounded corners for Squircle look
+$d = $corner * 2
+$squircle.AddArc(0, 0, $d, $d, 180, 90)
+$squircle.AddArc($cropSize - $d, 0, $d, $d, 270, 90)
+$squircle.AddArc($cropSize - $d, $cropSize - $d, $d, $d, 0, 90)
+$squircle.AddArc(0, $cropSize - $d, $d, $d, 90, 90)
+$squircle.CloseFigure()
+
+$final = New-Object System.Drawing.Bitmap $cropSize, $cropSize
+$gf = [System.Drawing.Graphics]::FromImage($final)
+$gf.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$gf.SetClip($squircle)
+$gf.DrawImage($cropped, 0, 0, $cropSize, $cropSize)
+$gf.Dispose()
 $g.Dispose()
 
-Write-Host "Cropped successfully"
+# Use $final for resizing
+$cropped.Dispose()
+$cropped = $final
 
 foreach ($folder in $sizes.Keys) {
     $size = [int]$sizes[$folder]
