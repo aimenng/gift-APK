@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
+    "@vercel/analytics": "^1.6.1",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "concurrently": "^9.2.1",
