@@ -160,5 +160,17 @@ foreach ($folder in $sizes.Keys) {
     Write-Host "Saved $folder ($size x $size)"
 }
 
+# Generate 216x216 Store Icon
+$storeSize = 216
+$storePath = "c:\Users\xhb23\Desktop\good\gifts---APK\gifts---couple-connection\docs\store_icon_216.png"
+$resizedStore = New-Object System.Drawing.Bitmap $storeSize, $storeSize
+$gStore = [System.Drawing.Graphics]::FromImage($resizedStore)
+$gStore.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$gStore.DrawImage($cropped, 0, 0, $storeSize, $storeSize)
+$resizedStore.Save($storePath, [System.Drawing.Imaging.ImageFormat]::Png)
+$gStore.Dispose()
+$resizedStore.Dispose()
+Write-Host "Saved Store Icon (216x216) to docs\store_icon_216.png"
+
 $cropped.Dispose()
 $srcInfo.Dispose()
