@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp, calculateRelativeDays, calculateNextOccurrence } from '../context';
 import { useAuth } from '../authContext';
 import { Modal } from '../components/Modal';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PublisherBadge } from '../components/PublisherBadge';
 import { EventType, AnniversaryEvent } from '../types';
 import { getDateValidationError, getMinDate, getMaxDate } from '../utils/dateValidation';
@@ -52,6 +53,8 @@ export const AnniversaryPage: React.FC = () => {
   const [type, setType] = useState<EventType>('纪念日');
   const [dateError, setDateError] = useState<string | null>(null);
   const [isSavingEvent, setIsSavingEvent] = useState(false);
+  const [pendingDeleteEventId, setPendingDeleteEventId] = useState<string | null>(null);
+  const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
   const submitLockRef = useRef(false);
   const recentSubmitRef = useRef<{ signature: string; at: number }>({ signature: '', at: 0 });
 
@@ -139,13 +142,21 @@ export const AnniversaryPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (eventId: string) => {
-    if (confirm('确定要删除这个纪念日吗？')) {
-      try {
-        await deleteEvent(eventId);
-      } catch (error) {
-        console.error('Failed to delete event:', error);
-      }
+  const handleDelete = (eventId: string) => {
+    setPendingDeleteEventId(eventId);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteEventId) return;
+    const eventId = pendingDeleteEventId;
+    setDeletingEventId(eventId);
+    try {
+      await deleteEvent(eventId);
+    } catch (error) {
+      console.error('Failed to delete event:', error);
+    } finally {
+      setDeletingEventId(null);
+      setPendingDeleteEventId(null);
     }
   };
 
@@ -428,6 +439,7 @@ export const AnniversaryPage: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleDelete(event.id)}
+                        disabled={Boolean(deletingEventId)}
                         className="p-2 bg-red-100 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all active:scale-90"
                         title="删除"
                       >
@@ -543,6 +555,18 @@ export const AnniversaryPage: React.FC = () => {
           </button>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteEventId)}
+        title="确定要删除这个纪念日吗？"
+        description="删除后将无法恢复，请确认是否继续。"
+        confirmText="确认删除"
+        cancelText="先保留"
+        confirmTone="danger"
+        loading={Boolean(deletingEventId)}
+        onCancel={() => setPendingDeleteEventId(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 };

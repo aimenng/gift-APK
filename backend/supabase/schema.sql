@@ -71,6 +71,16 @@ create table if not exists public.focus_stats (
   check (total_sessions >= 0)
 );
 
+create table if not exists public.focus_timer_state (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  mode text not null default 'countdown' check (mode in ('countdown', 'countup')),
+  initial_seconds integer not null default 1500 check (initial_seconds >= 1 and initial_seconds <= 7200),
+  current_seconds integer not null default 1500 check (current_seconds >= 0 and current_seconds <= 86400),
+  is_active boolean not null default false,
+  started_at timestamptz null,
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -124,6 +134,7 @@ create index if not exists idx_events_user_id on public.events (user_id);
 create index if not exists idx_period_tracker_user_date on public.period_tracker_entries (user_id, entry_date desc);
 create index if not exists idx_period_tracker_entry_date on public.period_tracker_entries (entry_date desc);
 create index if not exists idx_focus_stats_last_focus_date on public.focus_stats (last_focus_date desc nulls last);
+create index if not exists idx_focus_timer_state_active on public.focus_timer_state (is_active, updated_at desc);
 create index if not exists idx_notifications_user_id on public.notifications (user_id);
 create index if not exists idx_email_verifications_expires_at on public.email_verifications (expires_at);
 create unique index if not exists idx_binding_requests_requester_pending_unique on public.binding_requests (requester_user_id) where status = 'pending';

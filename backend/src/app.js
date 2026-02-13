@@ -89,6 +89,10 @@ app.use((error, _req, res, _next) => {
     message = '数据库缺少 focus_stats 表，请先执行 backend/supabase/migration_20260210_focus_stats_cloud.sql';
   }
 
+  if (typeof message === 'string' && message.includes("Could not find the table 'public.focus_timer_state'")) {
+    message = '数据库缺少 focus_timer_state 表，请先执行 backend/supabase/migration_20260213_focus_timer_state.sql';
+  }
+
   if (
     typeof message === 'string' &&
     message.includes("Could not find the 'token_version' column of 'users'")

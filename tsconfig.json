@@ -28,6 +28,7 @@
     "resolveJsonModule": true
   },
   "include": [
+    "**/*.d.ts",
     "**/*.ts",
     "**/*.tsx"
   ],

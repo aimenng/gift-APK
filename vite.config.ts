@@ -8,6 +8,8 @@ export default defineConfig(({ mode }) => {
     server: {
       // Use Vite default-ish dev port to avoid collisions with other tools on :3000.
       port: 5173,
+      // Do not silently switch ports; fail fast so users always know the correct URL.
+      strictPort: true,
       host: '0.0.0.0',
       proxy: {
         '/api': {

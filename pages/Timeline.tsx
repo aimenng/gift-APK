@@ -18,6 +18,7 @@ import {
 import { useApp, calculateDaysTogether, calculateNextOccurrence } from '../context';
 import { useAuth } from '../authContext';
 import { Modal } from '../components/Modal';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PublisherBadge } from '../components/PublisherBadge';
 import { validateFiles, compressImage, fileToBase64, getPhotoMetadata } from '../utils/imageUpload';
 import { getDateValidationError, getMinDate, getMaxDate } from '../utils/dateValidation';
@@ -162,6 +163,8 @@ export const TimelinePage: React.FC = () => {
   const [isSavingMemory, setIsSavingMemory] = useState(false);
   const [isBatchUploading, setIsBatchUploading] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [pendingDeleteMemoryId, setPendingDeleteMemoryId] = useState<string | null>(null);
+  const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchPreviewUrls, setBatchPreviewUrls] = useState<string[]>([]);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
@@ -639,14 +642,23 @@ export const TimelinePage: React.FC = () => {
     setIsUploadOpen(true);
   };
 
-  const handleDelete = async (memoryId: string) => {
-    if (!confirm('\u786e\u5b9a\u8981\u5220\u9664\u8fd9\u6761\u56de\u5fc6\u5417\uff1f')) return;
+  const handleDelete = (memoryId: string) => {
+    setPendingDeleteMemoryId(memoryId);
+  };
+
+  const confirmDeleteMemory = async () => {
+    if (!pendingDeleteMemoryId) return;
+    const memoryId = pendingDeleteMemoryId;
+    setDeletingMemoryId(memoryId);
     try {
       await deleteMemory(memoryId);
       showToast('\u5df2\u5220\u9664\u56de\u5fc6', 'success');
     } catch (error: any) {
       console.error('delete memory failed:', error);
       showToast(error?.message || '\u5220\u9664\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5', 'error');
+    } finally {
+      setDeletingMemoryId(null);
+      setPendingDeleteMemoryId(null);
     }
   };
   const toggleViewMode = () => {
@@ -866,6 +878,7 @@ export const TimelinePage: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleDelete(memory.id)}
+                      disabled={Boolean(deletingMemoryId)}
                       className="p-2 bg-red-100 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -983,6 +996,7 @@ export const TimelinePage: React.FC = () => {
                                 </button>
                                 <button
                                   onClick={() => handleDelete(entry.memory.id)}
+                                  disabled={Boolean(deletingMemoryId)}
                                   className="p-2 bg-red-100 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -1197,6 +1211,18 @@ export const TimelinePage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteMemoryId)}
+        title="确定要删除这条回忆吗？"
+        description="删除后将无法恢复，请确认是否继续。"
+        confirmText="确认删除"
+        cancelText="先保留"
+        confirmTone="danger"
+        loading={Boolean(deletingMemoryId)}
+        onCancel={() => setPendingDeleteMemoryId(null)}
+        onConfirm={confirmDeleteMemory}
+      />
     </div>
   );
 };

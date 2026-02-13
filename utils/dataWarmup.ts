@@ -1,4 +1,5 @@
 import { prefetchFocusStats } from './focusStatsCache';
+import { prefetchFocusTimerState } from './focusTimerStateCache';
 import { prefetchPeriodTrackerEntries } from './periodTrackerCache';
 
 let warmupEpoch = 0;
@@ -28,6 +29,12 @@ export const warmupCloudDataByPriority = (userId: string | null | undefined, par
   schedule(120, () => {
     if (currentEpoch !== warmupEpoch) return;
     void prefetchFocusStats(userId);
+  });
+
+  // P1.5: Focus timer running state for restoring in-progress sessions.
+  schedule(220, () => {
+    if (currentEpoch !== warmupEpoch) return;
+    void prefetchFocusTimerState(userId);
   });
 };
 

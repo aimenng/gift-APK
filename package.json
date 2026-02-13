@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:frontend": "vite",
     "dev:backend": "node backend/src/index.js",
-    "dev:full": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:full": "concurrently --kill-others-on-fail --names backend,frontend --prefix-colors cyan,magenta \"npm run dev:backend\" \"npm run dev:frontend\"",
     "migrate:images": "node backend/scripts/migrateInlineMemoriesToStorage.js",
     "start:backend": "node backend/src/index.js",
     "build": "vite build",

@@ -1,9 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from './types';
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './utils/apiClient';
 import { clearAuthToken, getAuthToken, setAuthToken } from './utils/authToken';
 import { cancelCloudWarmup, warmupCloudDataByPriority } from './utils/dataWarmup';
 import { clearFocusStatsCache } from './utils/focusStatsCache';
+import { clearFocusTimerStateCache } from './utils/focusTimerStateCache';
 import { clearPeriodTrackerCache } from './utils/periodTrackerCache';
 import { onSessionSync, triggerSessionSync } from './utils/sessionSync';
 
@@ -49,6 +50,7 @@ interface AuthContextType {
     type?: 'system' | 'interaction'
   ) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
   clearNotifications: () => Promise<void>;
   unreadCount: number;
   lastError: string | null;
@@ -64,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [partner, setPartner] = useState<User | null>(null);
   const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   const notifications = useMemo(
     () =>
@@ -82,36 +85,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAllNotifications([]);
     cancelCloudWarmup();
     clearFocusStatsCache();
+    clearFocusTimerStateCache();
     clearPeriodTrackerCache();
   }, []);
 
   const refreshAuthData = useCallback(async () => {
-    const token = getAuthToken();
-    if (!token) {
-      resetAuthState();
-      return;
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current;
     }
 
-    try {
-      const [me, notificationsResult] = await Promise.all([
-        apiGet<{ user: User; partner: User | null }>('/auth/me'),
-        apiGet<{ notifications: Notification[] }>('/notifications'),
-      ]);
-
-      const nextUsers: User[] = me.partner ? [me.user, me.partner] : [me.user];
-      setUsers(nextUsers);
-      setCurrentUser(me.user);
-      setPartner(me.partner);
-      setAllNotifications(notificationsResult.notifications || []);
-      setLastError(null);
-      warmupCloudDataByPriority(me.user.id, me.partner?.id || null);
-    } catch (error) {
-      console.error('Failed to refresh auth data:', error);
-      if (error instanceof ApiError && error.status === 401) {
-        clearAuthToken();
+    const refreshTask = (async () => {
+      const token = getAuthToken();
+      if (!token) {
         resetAuthState();
+        return;
       }
-    }
+
+      try {
+        const [me, notificationsResult] = await Promise.all([
+          apiGet<{ user: User; partner: User | null }>('/auth/me'),
+          apiGet<{ notifications: Notification[] }>('/notifications?limit=200'),
+        ]);
+
+        const nextUsers: User[] = me.partner ? [me.user, me.partner] : [me.user];
+        setUsers(nextUsers);
+        setCurrentUser(me.user);
+        setPartner(me.partner);
+        setAllNotifications(notificationsResult.notifications || []);
+        setLastError(null);
+        warmupCloudDataByPriority(me.user.id, me.partner?.id || null);
+      } catch (error) {
+        console.error('Failed to refresh auth data:', error);
+        if (error instanceof ApiError && error.status === 401) {
+          clearAuthToken();
+          resetAuthState();
+        }
+      }
+    })().finally(() => {
+      refreshInFlightRef.current = null;
+    });
+
+    refreshInFlightRef.current = refreshTask;
+    return refreshTask;
   }, [resetAuthState]);
 
   useEffect(() => {
@@ -129,14 +144,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isEmailTaken = (email: string) =>
     users.some((u) => u.email.toLowerCase() === email.toLowerCase());
 
-  const handleAuthSuccess = (result: AuthResponse) => {
+  const handleAuthSuccess = useCallback(async (result: AuthResponse) => {
     setAuthToken(result.token);
     setCurrentUser(result.user);
     setPartner(result.partner);
     setUsers(result.partner ? [result.user, result.partner] : [result.user]);
     warmupCloudDataByPriority(result.user.id, result.partner?.id || null);
     triggerSessionSync();
-  };
+    if (!result.user?.invitationCode) {
+      await refreshAuthData();
+    }
+  }, [refreshAuthData]);
 
   const requestRegisterCode = async (email: string, password: string): Promise<CodeRequestResult> => {
     try {
@@ -155,7 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expiresInMinutes: result.expiresInMinutes,
       };
     } catch (error: any) {
-      const message = error?.message || '\u53d1\u9001\u9a8c\u8bc1\u7801\u5931\u8d25';
+      const message = error?.message || '发送验证码失败';
       setLastError(message);
       console.error('requestRegisterCode failed:', error);
       return { ok: false, message };
@@ -173,7 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         code,
         password,
       });
-      handleAuthSuccess(result);
+      await handleAuthSuccess(result);
       setLastError(null);
       return true;
     } catch (error: any) {
@@ -184,7 +202,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await sleep(700 * (i + 1));
           try {
             const loginResult = await apiPost<AuthResponse>('/auth/login', { email, password });
-            handleAuthSuccess(loginResult);
+            await handleAuthSuccess(loginResult);
             setLastError(null);
             return true;
           } catch (_ignored) {
@@ -192,7 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       }
-      const message = error?.message || 'Verification failed';
+      const message = error?.message || '验证码校验失败';
       setLastError(message);
       console.error('verifyRegisterCode failed:', error);
       return false;
@@ -236,7 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastError(null);
       return true;
     } catch (error: any) {
-      const message = error?.message || '\u91cd\u7f6e\u5bc6\u7801\u5931\u8d25';
+      const message = error?.message || '重置密码失败';
       setLastError(message);
       console.error('resetPasswordWithCode failed:', error);
       return false;
@@ -246,11 +264,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       const result = await apiPost<AuthResponse>('/auth/login', { email, password });
-      handleAuthSuccess(result);
+      await handleAuthSuccess(result);
       setLastError(null);
       return true;
     } catch (error: any) {
-      const message = error?.message || '\u767b\u5f55\u5931\u8d25';
+      const message = error?.message || '登录失败';
       setLastError(message);
       console.error('Login failed:', error);
       return false;
@@ -302,7 +320,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastError(null);
     } catch (error: any) {
       console.error('addNotification failed:', error);
-      setLastError(error?.message || '\u521b\u5efa\u901a\u77e5\u5931\u8d25');
+      setLastError(error?.message || '创建通知失败');
     }
   };
 
@@ -320,6 +338,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const markAllAsRead = async () => {
+    if (!currentUser) return;
+
+    try {
+      await apiPatch<{ ok: boolean }>('/notifications/read-all', {});
+      setAllNotifications((prev) =>
+        prev.map((n) => (n.userId === currentUser.id ? { ...n, read: true } : n))
+      );
+      setLastError(null);
+    } catch (error: any) {
+      console.error('markAllAsRead failed:', error);
+      setLastError(error?.message || '一键标记已读失败');
+    }
+  };
+
   const clearNotifications = async () => {
     if (!currentUser) return;
 
@@ -328,7 +361,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastError(null);
     } catch (error: any) {
       console.error('clearNotifications failed:', error);
-      setLastError(error?.message || '\u6e05\u7a7a\u901a\u77e5\u5931\u8d25');
+      setLastError(error?.message || '清空通知失败');
     }
     setAllNotifications((prev) => prev.filter((n) => n.userId !== currentUser.id));
   };
@@ -351,6 +384,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notifications,
         addNotification,
         markAsRead,
+        markAllAsRead,
         clearNotifications,
         unreadCount,
         lastError,
@@ -368,4 +402,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
 

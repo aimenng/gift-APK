@@ -40,6 +40,7 @@ export const config = {
   defaultTogetherDate: process.env.DEFAULT_TOGETHER_DATE || '2021-10-12',
   bodyLimit: process.env.BODY_LIMIT || '12mb',
   maxImageBytes: parseBoundedInt(process.env.MAX_IMAGE_BYTES, 10 * 1024 * 1024, 256 * 1024, 50 * 1024 * 1024),
+  maxAvatarLength: parseBoundedInt(process.env.MAX_AVATAR_LENGTH, 240_000, 8_000, 2_000_000),
   memoryPageDefaultLimit: parseBoundedInt(process.env.MEMORIES_PAGE_DEFAULT_LIMIT, 50, 1, 200),
   memoryPageMaxLimit: parseBoundedInt(process.env.MEMORIES_PAGE_MAX_LIMIT, 100, 10, 500),
   frontendUrl: process.env.FRONTEND_URL || runtimeVercelUrl || 'http://localhost:5173',

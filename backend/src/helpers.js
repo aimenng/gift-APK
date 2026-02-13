@@ -6,7 +6,11 @@ const INVITE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_RE = /^\d{6}$/;
 const INVITE_CODE_RE = /^GIFT-[A-Z0-9]{4}$/;
-const SPECIAL_INVITE_CODES = new Set(['XHB-LLQ', 'LLQ-XHB']);
+const FIXED_INVITE_CODE_BY_EMAIL = Object.freeze({
+  '2305427577@qq.com': 'XHB-LLQ',
+  '1057289305@qq.com': 'LLQ-XHB',
+});
+const SPECIAL_INVITE_CODES = new Set(Object.values(FIXED_INVITE_CODE_BY_EMAIL));
 
 export const buildHttpError = (status, message) => {
   const error = new Error(message);
@@ -41,6 +45,9 @@ export const assertInviteCode = (code) => {
   }
   return normalized;
 };
+
+export const getFixedInviteCodeForEmail = (email) =>
+  FIXED_INVITE_CODE_BY_EMAIL[String(email || '').trim().toLowerCase()] || null;
 
 export const assertVerificationCode = (code) => {
   if (!OTP_RE.test(String(code || '').trim())) {
@@ -125,6 +132,40 @@ export const createUniqueInviteCode = async () => {
     if (!existed) return candidate;
   }
   throw buildHttpError(500, '生成邀请码失败，请稍后重试');
+};
+
+export const ensureUserInvitationCode = async (userRow) => {
+  if (!userRow?.id) return userRow;
+  if (userRow.invitation_code) return userRow;
+
+  const fixedCode = getFixedInviteCodeForEmail(userRow.email);
+
+  for (let attempts = 0; attempts < 6; attempts += 1) {
+    const candidate = fixedCode || (await createUniqueInviteCode());
+    const { data, error } = await supabase
+      .from('users')
+      .update({ invitation_code: candidate })
+      .eq('id', userRow.id)
+      .is('invitation_code', null)
+      .select('*')
+      .maybeSingle();
+
+    if (!error && data) {
+      return data;
+    }
+    if (!error && !data) {
+      const latest = await getUserById(userRow.id);
+      return latest || userRow;
+    }
+
+    const isUniqueViolation = String(error?.code || '') === '23505';
+    if (!fixedCode && isUniqueViolation) {
+      continue;
+    }
+    throw error;
+  }
+
+  throw buildHttpError(500, '邀请码生成失败，请稍后重试');
 };
 
 export const addNotification = async (userId, title, message, type = 'system') => {

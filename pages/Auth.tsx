@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../authContext';
 import { CuteLoadingScreen } from '../components/CuteLoadingScreen';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 interface AuthPageProps {
   onBack: () => void;
@@ -56,6 +57,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   const [showResetNewPassword, setShowResetNewPassword] = useState(false);
   const [showResetConfirmNewPassword, setShowResetConfirmNewPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showSlowLoader, setShowSlowLoader] = useState(false);
   const [loadingText, setLoadingText] = useState('正在处理中...');
   const [error, setError] = useState('');
@@ -293,7 +295,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   };
 
   const handleLogout = async () => {
-    if (!confirm('确定要退出登录吗？')) return;
+    setShowLogoutConfirm(false);
     await logout();
     resetForm();
   };
@@ -372,7 +374,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
             onClick={onBack}
             className="w-full h-12 rounded-xl bg-primary text-white font-bold hover:bg-[#7a8a4b] transition-all flex items-center justify-center"
           >
-            进入 App
+            进入应用
           </button>
 
           <button
@@ -384,13 +386,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
           </button>
 
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutConfirm(true)}
             className="w-full h-12 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-500 font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors flex items-center justify-center gap-2"
           >
             <LogOut className="w-5 h-5" />
             退出登录
           </button>
         </div>
+
+        <ConfirmDialog
+          isOpen={showLogoutConfirm}
+          title="确定要退出登录吗？"
+          description="退出后仍可使用原邮箱重新登录并恢复云端数据。"
+          cancelText="我再看看"
+          confirmText="退出登录"
+          confirmTone="danger"
+          onCancel={() => setShowLogoutConfirm(false)}
+          onConfirm={handleLogout}
+        />
       </div>
     );
   }

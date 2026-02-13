@@ -99,6 +99,13 @@ const CLOUD_SYNC_INTERVAL_CONNECTED_MS = 45_000;
 const CLOUD_SYNC_INTERVAL_DISCONNECTED_MS = 20_000;
 const CLOUD_MEMORY_BATCH_PAYLOAD_SOFT_LIMIT = 8 * 1024 * 1024;
 const CLOUD_MEMORY_BATCH_MAX_ITEMS_PER_REQUEST = 4;
+const normalizeInviteCodeInput = (value: string): string =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '-')
+    .replace(/[^A-Z0-9-]/g, '')
+    .slice(0, 24);
 
 const createLocalMemory = (newMemory: Omit<Memory, 'id' | 'rotation'>): Memory => ({
   ...newMemory,
@@ -244,6 +251,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncQueuedRef = useRef(false);
   const syncEpochRef = useRef(0);
   const lastFullSyncAtRef = useRef(0);
+  const bindingMutationInFlightRef = useRef(false);
 
   const refreshPendingBindingRequests = async () => {
     const token = getAuthToken();
@@ -284,7 +292,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const shouldRunFullSync =
         mode === 'full' || Date.now() - lastFullSyncAtRef.current >= CLOUD_FULL_SYNC_COOLDOWN_MS;
       const [firstPage, pendingResult] = await Promise.all([
-        apiGet<AppStateResponse>(`/app/state?page=1&limit=${CLOUD_SYNC_PAGE_SIZE}&includeYearStats=0`),
+        apiGet<AppStateResponse>(
+          `/app/state?page=1&limit=${CLOUD_SYNC_PAGE_SIZE}&includeYearStats=0&includeCount=0`
+        ),
         apiGet<PendingBindingsResponse>('/bindings/pending').catch(() => ({ requests: [] })),
       ]);
       if (syncEpochRef.current !== syncEpoch) return;
@@ -412,8 +422,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [hasCloudSession, connectionState.isConnected]);
 
+  const hasActiveSession = () => Boolean(getAuthToken());
+
   const addMemory = async (newMemory: Omit<Memory, 'id' | 'rotation'>) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再上传回忆');
     }
 
@@ -454,7 +466,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addMemoriesBatch = async (items: Array<Omit<Memory, 'id' | 'rotation'>>) => {
     if (!items.length) return 0;
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再上传回忆');
     }
 
@@ -512,7 +524,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
   const updateMemory = async (id: string, updates: Partial<Omit<Memory, 'id'>>) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再编辑回忆');
     }
 
@@ -524,7 +536,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const deleteMemory = async (id: string) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再删除回忆');
     }
 
@@ -536,7 +548,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const addEvent = async (newEvent: Omit<AnniversaryEvent, 'id'>) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再添加纪念日');
     }
 
@@ -546,7 +558,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
   const updateEvent = async (id: string, updates: Partial<Omit<AnniversaryEvent, 'id'>>) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再编辑纪念日');
     }
 
@@ -556,7 +568,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
   const deleteEvent = async (id: string) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再删除纪念日');
     }
 
@@ -564,7 +576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEvents((prev) => prev.filter((e) => e.id !== id));
   };
   const updateTogetherDate = async (date: string) => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再更新纪念日');
     }
 
@@ -577,18 +589,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
   const connect = async (code: string): Promise<ConnectResult> => {
-    const inviteCode = code.trim();
+    const inviteCode = normalizeInviteCodeInput(code);
     if (inviteCode.length < 6) {
       return { ok: false, message: '邀请码格式不正确' };
     }
 
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       return {
         ok: false,
         message: '请先登录账号后再绑定邀请码',
       };
     }
 
+    if (bindingMutationInFlightRef.current) {
+      return {
+        ok: false,
+        message: '正在处理上一条绑定操作，请稍候',
+      };
+    }
+
+    bindingMutationInFlightRef.current = true;
     try {
       const response = await apiPost<{
         ok?: boolean;
@@ -620,35 +640,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ok: false,
         message: error?.message || '绑定失败，请重试',
       };
+    } finally {
+      bindingMutationInFlightRef.current = false;
     }
   };
 
   const disconnect = async () => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       throw new Error('请先登录后再解绑关系');
     }
 
-    const response = await apiPost<{ settings: AppStateResponse['settings'] }>('/settings/disconnect');
-    setConnectionState((prev) => ({
-      ...prev,
-      isConnected: Boolean(response.settings.isConnected),
-      inviteCode: response.settings.inviteCode || prev.inviteCode,
-      boundInviteCode: response.settings.boundInviteCode || null,
-      togetherDate: response.settings.togetherDate || prev.togetherDate,
-    }));
-    triggerSessionSync();
+    if (bindingMutationInFlightRef.current) {
+      throw new Error('正在处理上一条绑定操作，请稍候');
+    }
+
+    bindingMutationInFlightRef.current = true;
+    try {
+      const response = await apiPost<{ settings: AppStateResponse['settings'] }>('/settings/disconnect');
+      setConnectionState((prev) => ({
+        ...prev,
+        isConnected: Boolean(response.settings.isConnected),
+        inviteCode: response.settings.inviteCode || prev.inviteCode,
+        boundInviteCode: response.settings.boundInviteCode || null,
+        togetherDate: response.settings.togetherDate || prev.togetherDate,
+      }));
+      triggerSessionSync();
+    } finally {
+      bindingMutationInFlightRef.current = false;
+    }
   };
   const respondBindingRequest = async (
     requestId: string,
     action: 'accept' | 'reject'
   ): Promise<ConnectResult> => {
-    if (!hasCloudSession) {
+    if (!hasActiveSession()) {
       return {
         ok: false,
         message: '请先登录后再处理请求',
       };
     }
 
+    if (bindingMutationInFlightRef.current) {
+      return {
+        ok: false,
+        message: '正在处理上一条绑定操作，请稍候',
+      };
+    }
+
+    bindingMutationInFlightRef.current = true;
     try {
       const response = await apiPost<{
         ok?: boolean;
@@ -674,14 +713,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return {
         ok: true,
-        message: response.message || (action === 'accept' ? 'Binding accepted' : 'Request rejected'),
+        message: response.message || (action === 'accept' ? '已同意绑定请求' : '已拒绝绑定请求'),
       };
     } catch (error: any) {
       console.error('respondBindingRequest failed:', error);
       return {
         ok: false,
-        message: error?.message || 'Failed to process request',
+        message: error?.message || '处理请求失败，请稍后重试',
       };
+    } finally {
+      bindingMutationInFlightRef.current = false;
     }
   };
 

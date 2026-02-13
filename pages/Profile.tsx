@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Bell,
+  BrushCleaning,
   Copy,
   Edit2,
   Grid,
@@ -69,6 +70,20 @@ const SettingsCard: React.FC<SettingsCardProps> = ({
   </button>
 );
 
+const formatNotificationDateTime = (value?: string | null) => {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
 const PixelLanPreviewIcon: React.FC = () => (
   <svg viewBox="0 0 44 44" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <rect x="2" y="2" width="40" height="40" rx="12" fill="url(#pixel-card-bg)" />
@@ -136,7 +151,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     refreshPendingBindingRequests,
     respondBindingRequest,
   } = useApp();
-  const { currentUser, partner, unreadCount, notifications, markAsRead, clearNotifications, refreshAuthData } = useAuth();
+  const { currentUser, partner, unreadCount, notifications, markAsRead, markAllAsRead, clearNotifications } = useAuth();
   const { showToast } = useToast();
 
   const [showNotifications, setShowNotifications] = useState(false);
@@ -146,9 +161,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [showPixelAvatar, setShowPixelAvatar] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showAnimatedAvatar, setShowAnimatedAvatar] = useState(false);
+  const [markAllReadBusy, setMarkAllReadBusy] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [tempDate, setTempDate] = useState(togetherDate);
   const [bindingActionBusyId, setBindingActionBusyId] = useState<string | null>(null);
+  const effectiveInviteCode = inviteCode || currentUser?.invitationCode || '';
+  const inviteCodeReady = !currentUser || Boolean(effectiveInviteCode);
 
   const daysTogether = calculateDaysTogether(togetherDate);
   const currentUserGender = currentUser?.gender === 'female' ? 'female' : 'male';
@@ -184,8 +202,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   const handleCopyCode = () => {
-    if (!inviteCode) return;
-    navigator.clipboard.writeText(inviteCode);
+    if (!effectiveInviteCode) return;
+    navigator.clipboard.writeText(effectiveInviteCode);
     showToast('邀请码已复制', 'love');
   };
 
@@ -194,8 +212,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     refreshPendingBindingRequests();
   };
 
+  const handleMarkAllRead = async () => {
+    if (markAllReadBusy || unreadCount <= 0) return;
+    setMarkAllReadBusy(true);
+    try {
+      await markAllAsRead();
+      showToast('全部消息已标记为已读', 'success');
+    } finally {
+      setMarkAllReadBusy(false);
+    }
+  };
+
   const handleFeedbackClick = () => {
     setShowFeedback(true);
+  };
+
+  const handleOpenPeriodTracker = () => {
+    if (!currentUser) {
+      showToast('请先登录账号后再使用该功能', 'error');
+      return;
+    }
+    setShowPeriodTracker(true);
   };
 
   const handleSendFeedback = () => {
@@ -225,12 +262,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setBindingActionBusyId(null);
     }
   };
-
-  useEffect(() => {
-    refreshAuthData().catch(() => {
-      // Error handling is centralized in auth context.
-    });
-  }, [refreshAuthData]);
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--eye-bg-primary)]">
@@ -293,17 +324,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div className="w-full mb-4 mt-6">
-            <div className="flex items-center justify-between rounded-2xl bg-[var(--eye-bg-secondary)] p-4 shadow-sm border border-[var(--eye-border)] gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-start sm:items-center justify-between rounded-2xl bg-[var(--eye-bg-secondary)] p-3.5 sm:p-4 shadow-sm border border-[var(--eye-border)] gap-2.5 sm:gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="size-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-md shrink-0">
                   <Palette className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[var(--eye-text-primary)] text-base font-bold leading-tight">主题切换</p>
-                  <p className="text-[var(--eye-text-secondary)] text-xs mt-1 truncate">护眼模式已启用</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[var(--eye-text-primary)] text-[15px] sm:text-base font-bold leading-tight">主题切换</p>
+                  <p className="text-[var(--eye-text-secondary)] text-[11px] sm:text-xs mt-1 leading-snug break-words line-clamp-2">
+                    护眼模式已启用，可按需切换明暗主题
+                  </p>
                 </div>
               </div>
-              <ThemeToggle />
+              <ThemeToggle className="shrink-0 scale-[0.9] sm:scale-100 origin-right" />
             </div>
           </div>
 
@@ -350,11 +383,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <p className="text-[var(--eye-text-secondary)] text-xs mb-1">我的邀请码（唯一）</p>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[var(--eye-text-primary)] font-mono font-bold tracking-[0.14em] text-base break-all pr-2">
-                      {inviteCode || '生成中'}
+                      {effectiveInviteCode || '生成中'}
                     </p>
                     <button
                       onClick={handleCopyCode}
-                      disabled={!inviteCode}
+                      disabled={!effectiveInviteCode}
                       className="flex items-center justify-center size-9 rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-white transition-all active:scale-95 disabled:opacity-50 shrink-0"
                     >
                       <Copy className="w-4 h-4" />
@@ -369,11 +402,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
                 <button
                   onClick={onManageConnection}
-                  className="w-full h-11 rounded-xl bg-primary text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:bg-[#7a8a4b]"
+                  className="w-full h-11 rounded-xl bg-primary text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:bg-[#7a8a4b] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Link2 className="w-4 h-4" />
                   {isConnected ? '管理绑定关系' : '去绑定邀请码'}
                 </button>
+                {!inviteCodeReady && (
+                  <p className="text-[11px] text-[var(--eye-text-secondary)]">
+                    邀请码仍在同步中，不影响应用使用；可先继续浏览，稍后再绑定。
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -418,8 +456,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                   <div className="grid grid-cols-2 gap-3">
                     <button
-                      onClick={() => setShowPeriodTracker(true)}
-                      className="rounded-2xl p-4 text-left border border-rose-200/60 dark:border-rose-500/20 bg-gradient-to-br from-pink-50 to-rose-50 dark:from-rose-900/30 dark:to-pink-900/20 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col"
+                      onClick={handleOpenPeriodTracker}
+                      className="rounded-2xl p-4 text-left border border-rose-200/60 dark:border-rose-500/20 bg-gradient-to-br from-pink-50 to-rose-50 dark:from-rose-900/30 dark:to-pink-900/20 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <div className="mb-3 size-11 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-500 text-white flex items-center justify-center shadow-md shrink-0">
                         <Heart className="w-5 h-5" />
@@ -433,12 +471,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       className="relative rounded-2xl p-4 text-left border border-amber-200/70 dark:border-amber-500/25 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/20 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col overflow-hidden"
                     >
                       <div className="absolute -right-8 -bottom-8 w-24 h-24 rounded-full bg-amber-300/30 blur-xl pointer-events-none" />
-                      <span className="absolute top-3 right-3 rounded-full bg-amber-500/90 text-white text-[10px] px-2 py-0.5 font-semibold tracking-wide shadow">SPECIAL</span>
+                      <span className="absolute top-3 right-3 rounded-full bg-amber-500/90 text-white text-[10px] px-2 py-0.5 font-semibold tracking-wide shadow">特典</span>
                       <div className="mb-3 size-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md shrink-0 ring-1 ring-white/40">
                         <PixelLanPreviewIcon />
                       </div>
                       <p className="text-[var(--eye-text-primary)] text-base font-bold leading-tight">像素小兰</p>
-                      <p className="text-[var(--eye-text-secondary)] text-xs mt-1 leading-tight">五形象滑动查看</p>
+                      <p className="text-[var(--eye-text-secondary)] text-xs mt-1 leading-tight">可滑动查看形象</p>
                     </button>
 
                     <button
@@ -446,12 +484,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       className="relative rounded-2xl p-4 text-left border border-cyan-200/70 dark:border-cyan-500/25 bg-gradient-to-br from-cyan-50 to-teal-50 dark:from-cyan-900/30 dark:to-teal-900/20 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col overflow-hidden"
                     >
                       <div className="absolute -right-8 -bottom-8 w-24 h-24 rounded-full bg-cyan-300/30 blur-xl pointer-events-none" />
-                      <span className="absolute top-3 right-3 rounded-full bg-cyan-500/90 text-white text-[10px] px-2 py-0.5 font-semibold tracking-wide shadow">NEW</span>
+                      <span className="absolute top-3 right-3 rounded-full bg-cyan-500/90 text-white text-[10px] px-2 py-0.5 font-semibold tracking-wide shadow">新功能</span>
                       <div className="mb-3 size-11 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-500 text-white flex items-center justify-center shadow-md shrink-0 ring-1 ring-white/40">
                         <AnimatedLanPreviewIcon />
                       </div>
                       <p className="text-[var(--eye-text-primary)] text-base font-bold leading-tight">动画小兰</p>
-                      <p className="text-[var(--eye-text-secondary)] text-xs mt-1 leading-tight">五形象卡通版</p>
+                      <p className="text-[var(--eye-text-secondary)] text-xs mt-1 leading-tight">五个形象卡通版</p>
                     </button>
 
                     <button
@@ -498,12 +536,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void handleMarkAllRead()}
+                  disabled={markAllReadBusy || unreadCount === 0}
+                  className="h-8 px-2.5 rounded-lg text-[11px] sm:text-xs text-[var(--eye-text-secondary)] hover:text-primary hover:bg-primary/10 transition-colors flex items-center gap-1 disabled:opacity-45 disabled:cursor-not-allowed"
+                  title="一键标记已读"
+                  aria-label="一键标记所有消息为已读"
+                >
+                  <BrushCleaning className="w-3.5 h-3.5" />
+                  已读
+                </button>
                 <button
                   onClick={clearNotifications}
-                  className="text-xs text-[var(--eye-text-secondary)] hover:text-red-500 transition-colors flex items-center gap-1"
+                  className="h-8 px-2.5 rounded-lg text-[11px] sm:text-xs text-[var(--eye-text-secondary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex items-center gap-1"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3.5 h-3.5" />
                   清空
                 </button>
                 <button
@@ -538,7 +586,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </span>
                         </div>
                         <span className="text-[10px] text-[var(--eye-text-secondary)] whitespace-nowrap ml-2">
-                          {new Date(request.createdAt).toLocaleDateString()}
+                          {formatNotificationDateTime(request.createdAt)}
                         </span>
                       </div>
                       <p className="text-xs text-[var(--eye-text-secondary)] leading-relaxed">
@@ -594,7 +642,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </span>
                         </div>
                         <span className="text-[10px] text-[var(--eye-text-secondary)] whitespace-nowrap ml-2">
-                          {new Date(notification.createdAt).toLocaleDateString()}
+                          {formatNotificationDateTime(notification.createdAt)}
                         </span>
                       </div>
                       <p className="text-xs text-[var(--eye-text-secondary)] leading-relaxed line-clamp-3">
@@ -694,7 +742,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <textarea
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="请描述你遇到的问题或建议…"
+              placeholder="请描述你遇到的问题或建议..."
               rows={4}
               className="w-full rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] p-3 text-sm text-[var(--eye-text-primary)] placeholder:text-[var(--eye-text-secondary)]/50 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all"
             />

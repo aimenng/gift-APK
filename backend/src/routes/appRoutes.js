@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { requireAuth } from '../auth.js';
-import { mapEvent, mapMemory, mapNotification, mapSettings } from '../mappers.js';
+import { mapEvent, mapMemory, mapNotification, mapSettings, normalizeAvatar } from '../mappers.js';
 import { supabase } from '../supabaseClient.js';
 import {
   addHoursIso,
@@ -79,7 +79,7 @@ const normalizeMemoryRotation = (rotation) => {
   const normalized = rotation.trim();
   if (!normalized) return null;
   if (!RANDOM_ROTATIONS.includes(normalized)) {
-    throw buildHttpError(400, 'rotation is invalid');
+    throw buildHttpError(400, 'rotation 参数无效');
   }
   return normalized;
 };
@@ -87,10 +87,10 @@ const normalizeMemoryRotation = (rotation) => {
 const normalizeRequiredText = (value, fieldName, maxLength) => {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw buildHttpError(400, `${fieldName} is required`);
+    throw buildHttpError(400, `${fieldName} 为必填项`);
   }
   if (normalized.length > maxLength) {
-    throw buildHttpError(400, `${fieldName} must be at most ${maxLength} characters`);
+    throw buildHttpError(400, `${fieldName} 长度不能超过 ${maxLength} 个字符`);
   }
   return normalized;
 };
@@ -99,7 +99,7 @@ const normalizeOptionalText = (value, fieldName, maxLength) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
   if (normalized.length > maxLength) {
-    throw buildHttpError(400, `${fieldName} must be at most ${maxLength} characters`);
+    throw buildHttpError(400, `${fieldName} 长度不能超过 ${maxLength} 个字符`);
   }
   return normalized;
 };
@@ -244,7 +244,11 @@ const loadUserMapByIds = async (userIds) => {
     .select('id,name,email,avatar,gender')
     .in('id', ids);
   if (error) throw error;
-  return new Map((data || []).map((row) => [row.id, row]));
+  const rowsWithResolvedAvatar = await mapWithConcurrency(data || [], 6, async (row) => ({
+    ...row,
+    avatar: await resolveMemoryImageUrl(normalizeAvatar(row.avatar)),
+  }));
+  return new Map(rowsWithResolvedAvatar.map((row) => [row.id, row]));
 };
 
 const loadMemoriesByUsers = async (userIds, pagination, options = {}) => {
@@ -320,6 +324,11 @@ const loadEventsByUsers = async (userIds) => {
 const PERIOD_FLOW_LEVELS = new Set(['light', 'medium', 'heavy']);
 const PERIOD_MOOD_CANONICAL = new Set(['开心', '幸福', '平静', '难过', '焦虑']);
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FOCUS_TIMER_MODES = new Set(['countdown', 'countup']);
+const FOCUS_TIMER_DEFAULT_INITIAL_SECONDS = 25 * 60;
+const FOCUS_TIMER_MIN_INITIAL_SECONDS = 60;
+const FOCUS_TIMER_MAX_INITIAL_SECONDS = 2 * 60 * 60;
+const FOCUS_TIMER_MAX_CURRENT_SECONDS = 24 * 60 * 60;
 
 const clampNonNegativeInt = (value) => {
   const parsed = Number.parseInt(String(value ?? 0), 10);
@@ -392,6 +401,44 @@ const mapFocusStats = (row) => ({
   updatedAt: row.updated_at,
 });
 
+const mapFocusTimerState = (row, overrideCurrentSeconds = null) => {
+  const currentSecondsRaw =
+    overrideCurrentSeconds == null
+      ? clampNonNegativeInt(row.current_seconds)
+      : clampNonNegativeInt(overrideCurrentSeconds);
+
+  return {
+    userId: row.user_id,
+    mode: FOCUS_TIMER_MODES.has(String(row.mode || '')) ? row.mode : 'countdown',
+    initialSeconds: Math.max(
+      FOCUS_TIMER_MIN_INITIAL_SECONDS,
+      Math.min(
+        FOCUS_TIMER_MAX_INITIAL_SECONDS,
+        clampNonNegativeInt(row.initial_seconds) || FOCUS_TIMER_DEFAULT_INITIAL_SECONDS
+      )
+    ),
+    currentSeconds: Math.min(FOCUS_TIMER_MAX_CURRENT_SECONDS, currentSecondsRaw),
+    isActive: Boolean(row.is_active),
+    startedAt: row.started_at || null,
+    updatedAt: row.updated_at,
+  };
+};
+
+const computeFocusTimerCurrentSeconds = (row, nowMs = Date.now()) => {
+  const currentBase = clampNonNegativeInt(row.current_seconds);
+  if (!row?.is_active) return currentBase;
+
+  const startedAtMs = Date.parse(String(row.started_at || ''));
+  if (!Number.isFinite(startedAtMs)) return currentBase;
+  const diffSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+
+  if (row.mode === 'countdown') {
+    return Math.max(0, currentBase - diffSeconds);
+  }
+
+  return Math.min(FOCUS_TIMER_MAX_CURRENT_SECONDS, currentBase + diffSeconds);
+};
+
 const ensureFocusStatsRow = async (userId) => {
   const { data: existing, error: selectError } = await supabase
     .from('focus_stats')
@@ -417,13 +464,39 @@ const ensureFocusStatsRow = async (userId) => {
   return created;
 };
 
+const ensureFocusTimerStateRow = async (userId) => {
+  const { data: existing, error: selectError } = await supabase
+    .from('focus_timer_state')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (selectError) throw selectError;
+  if (existing) return existing;
+
+  const { data: created, error: createError } = await supabase
+    .from('focus_timer_state')
+    .insert({
+      user_id: userId,
+      mode: 'countdown',
+      initial_seconds: FOCUS_TIMER_DEFAULT_INITIAL_SECONDS,
+      current_seconds: FOCUS_TIMER_DEFAULT_INITIAL_SECONDS,
+      is_active: false,
+      started_at: null,
+      updated_at: nowIso(),
+    })
+    .select('*')
+    .single();
+  if (createError) throw createError;
+  return created;
+};
+
 const mapPeriodAuthor = (authorRow) => {
   if (!authorRow) return null;
   return {
     id: authorRow.id,
     name: authorRow.name || '',
     email: authorRow.email || '',
-    avatar: authorRow.avatar || '',
+    avatar: normalizeAvatar(authorRow.avatar),
     gender: authorRow.gender || 'male',
   };
 };
@@ -462,7 +535,7 @@ const mapMemoryForResponse = async (row, authorRow = null) => {
 const mapMemoriesForResponse = async (rows, authorMap = null) =>
   mapWithConcurrency(rows || [], 6, async (row) => mapMemoryForResponse(row, authorMap?.get(row.user_id)));
 
-const htmlResponse = (title, message, buttonText = 'Open App') => `
+const htmlResponse = (title, message, buttonText = '打开应用') => `
 <!doctype html>
 <html lang="zh-CN">
   <head>
@@ -483,7 +556,7 @@ const htmlResponse = (title, message, buttonText = 'Open App') => `
       <h1>${title}</h1>
       <p>${message}</p>
       <a href="${config.frontendUrl}">${buttonText}</a>
-      <p class="muted">If the button does not open the app, copy this URL: ${config.frontendUrl}</p>
+      <p class="muted">如果按钮未能拉起应用，请复制此链接：${config.frontendUrl}</p>
     </div>
   </body>
 </html>
@@ -586,7 +659,7 @@ const applyBindingAcceptance = async (bindRequest) => {
 
   if (!requester || !target) {
     await supabase.from('binding_requests').update({ status: 'expired' }).eq('id', bindRequest.id);
-    throw buildHttpError(404, 'User not found');
+    throw buildHttpError(404, '用户不存在');
   }
 
   if (
@@ -596,7 +669,7 @@ const applyBindingAcceptance = async (bindRequest) => {
     target.bound_invitation_code
   ) {
     await supabase.from('binding_requests').update({ status: 'rejected' }).eq('id', bindRequest.id);
-    throw buildHttpError(409, 'At least one account is already connected');
+    throw buildHttpError(409, '至少有一个账号已绑定');
   }
 
   const rollbackPairBinding = async () => {
@@ -626,7 +699,7 @@ const applyBindingAcceptance = async (bindRequest) => {
   if (requesterUpdateError) throw requesterUpdateError;
   if (!requesterUpdated) {
     await supabase.from('binding_requests').update({ status: 'rejected' }).eq('id', bindRequest.id);
-    throw buildHttpError(409, 'At least one account is already connected');
+    throw buildHttpError(409, '至少有一个账号已绑定');
   }
 
   const { data: targetUpdated, error: targetUpdateError } = await supabase
@@ -647,7 +720,7 @@ const applyBindingAcceptance = async (bindRequest) => {
   if (!targetUpdated) {
     await rollbackPairBinding();
     await supabase.from('binding_requests').update({ status: 'rejected' }).eq('id', bindRequest.id);
-    throw buildHttpError(409, 'At least one account is already connected');
+    throw buildHttpError(409, '至少有一个账号已绑定');
   }
 
   const { error: bindingUpdateError } = await supabase
@@ -673,8 +746,8 @@ const applyBindingAcceptance = async (bindRequest) => {
   fireAndForget(
     addNotification(
       requesterUpdated.id,
-      'Binding confirmed',
-      `${targetUpdated.name || targetUpdated.email} accepted your binding request.`,
+      '绑定已确认',
+      `${targetUpdated.name || targetUpdated.email} 已同意你的绑定请求。`,
       'interaction'
     ),
     'notify-bind-requester'
@@ -682,8 +755,8 @@ const applyBindingAcceptance = async (bindRequest) => {
   fireAndForget(
     addNotification(
       targetUpdated.id,
-      'Binding completed',
-      `You have connected with ${requesterUpdated.name || requesterUpdated.email}.`,
+      '绑定成功',
+      `你已与 ${requesterUpdated.name || requesterUpdated.email} 完成绑定。`,
       'interaction'
     ),
     'notify-bind-target'
@@ -762,9 +835,9 @@ router.post(
       .trim()
       .toLowerCase();
 
-    if (!requestId) throw buildHttpError(400, 'Missing request id');
+    if (!requestId) throw buildHttpError(400, '缺少请求ID');
     if (!['accept', 'reject'].includes(action)) {
-      throw buildHttpError(400, 'action must be accept or reject');
+      throw buildHttpError(400, 'action 仅支持 accept 或 reject');
     }
 
     const { data: bindRequest, error: bindRequestError } = await supabase
@@ -776,12 +849,12 @@ router.post(
       .maybeSingle();
     if (bindRequestError) throw bindRequestError;
     if (!bindRequest) {
-      throw buildHttpError(404, 'Binding request not found or already processed');
+      throw buildHttpError(404, '绑定请求不存在或已处理');
     }
 
     if (new Date(bindRequest.expires_at).getTime() < Date.now()) {
       await supabase.from('binding_requests').update({ status: 'expired' }).eq('id', bindRequest.id);
-      throw buildHttpError(400, 'Binding request expired');
+      throw buildHttpError(400, '绑定请求已过期');
     }
 
     if (action === 'reject') {
@@ -800,8 +873,8 @@ router.post(
         fireAndForget(
           addNotification(
             requester.id,
-            'Binding request rejected',
-            `${target.name || target.email} rejected your binding request.`,
+            '绑定请求被拒绝',
+            `${target.name || target.email} 已拒绝你的绑定请求。`,
             'interaction'
           ),
           'notify-bind-reject-requester'
@@ -814,7 +887,7 @@ router.post(
       return res.json({
         ok: true,
         action,
-        message: 'Request rejected',
+        message: '已拒绝绑定请求',
         settings: mapSettings(settings, currentUser),
       });
     }
@@ -825,7 +898,7 @@ router.post(
     return res.json({
       ok: true,
       action,
-      message: 'Binding accepted',
+      message: '已同意绑定请求',
       settings: mapSettings(settings, target),
     });
   })
@@ -838,7 +911,7 @@ router.get(
     if (!token) {
       return res
         .status(400)
-        .send(htmlResponse('Confirmation Failed', 'Missing confirmation token. Please retry.', 'Back to App'));
+        .send(htmlResponse('确认失败', '缺少确认令牌，请重试。', '返回应用'));
     }
 
     const { data: bindRequest, error: requestError } = await supabase
@@ -851,14 +924,14 @@ router.get(
     if (!bindRequest) {
       return res
         .status(404)
-        .send(htmlResponse('Request Not Found', 'This binding request does not exist or is already handled.'));
+        .send(htmlResponse('请求不存在', '该绑定请求不存在或已处理。'));
     }
 
     if (new Date(bindRequest.expires_at).getTime() < Date.now()) {
       await supabase.from('binding_requests').update({ status: 'expired' }).eq('id', bindRequest.id);
       return res
         .status(400)
-        .send(htmlResponse('Request Expired', 'The confirmation link has expired. Ask your partner to retry.'));
+        .send(htmlResponse('请求已过期', '确认链接已过期，请让对方重新发起请求。'));
     }
 
     try {
@@ -867,19 +940,19 @@ router.get(
       if ((error?.status || 500) === 404) {
         return res
           .status(404)
-          .send(htmlResponse('User Not Found', 'One side of this binding request no longer exists.'));
+          .send(htmlResponse('用户不存在', '该绑定请求中的一方账号已不存在。'));
       }
       if ((error?.status || 500) === 409) {
         return res
           .status(409)
-          .send(htmlResponse('Cannot Bind', 'At least one account is already connected.'));
+          .send(htmlResponse('无法绑定', '至少有一个账号已绑定。'));
       }
       throw error;
     }
 
     return res
       .status(200)
-      .send(htmlResponse('Binding Success', 'You have successfully confirmed the connection.'));
+      .send(htmlResponse('绑定成功', '你已成功确认绑定。'));
   })
 );
 
@@ -888,11 +961,12 @@ router.get(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: '用户不存在' });
     const sharedUserIds = buildSharedUserIds(user);
 
     const pagination = parsePaginationQuery(req.query);
     const includeYearStats = String(req.query?.includeYearStats || '').trim() !== '0';
+    const includeCount = String(req.query?.includeCount || '').trim() !== '0';
     const [
       memoriesResult,
       events,
@@ -900,7 +974,7 @@ router.get(
       yearStats,
       authorMap,
     ] = await Promise.all([
-      loadMemoriesByUsers(sharedUserIds, pagination),
+      loadMemoriesByUsers(sharedUserIds, pagination, { includeCount }),
       loadEventsByUsers(sharedUserIds),
       supabase.from('user_settings').select('*').eq('user_id', req.userId).maybeSingle(),
       includeYearStats ? (pagination.enabled ? loadYearStatsByUsers(sharedUserIds) : Promise.resolve(null)) : Promise.resolve(null),
@@ -941,12 +1015,12 @@ router.patch(
   withAsync(async (req, res) => {
     const { togetherDate } = req.body || {};
     if (!togetherDate) {
-      throw buildHttpError(400, 'togetherDate is required');
+      throw buildHttpError(400, 'togetherDate 必填');
     }
     assertDateString(togetherDate, 'togetherDate');
 
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
 
     const isConnected = Boolean(user.partner_id);
     const targetUserIds = isConnected ? [req.userId, user.partner_id] : [req.userId];
@@ -979,7 +1053,7 @@ router.get(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
 
     const start = String(req.query?.start || '').trim();
     const end = String(req.query?.end || '').trim();
@@ -1013,7 +1087,7 @@ router.patch(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
 
     const entryDate = String(req.params?.date || '').trim();
     assertDateString(entryDate, 'date');
@@ -1025,7 +1099,7 @@ router.patch(
     const flow = PERIOD_FLOW_LEVELS.has(flowRaw) ? flowRaw : null;
 
     if ((user.gender || 'male') === 'male' && isPeriod) {
-      throw buildHttpError(400, 'Male account cannot mark period status');
+      throw buildHttpError(400, '男性账号不能标记经期状态');
     }
 
     const effectiveFlow = isPeriod ? flow : null;
@@ -1056,9 +1130,14 @@ router.patch(
       .single();
     if (error) throw error;
 
+    const userWithResolvedAvatar = {
+      ...user,
+      avatar: await resolveMemoryImageUrl(normalizeAvatar(user.avatar)),
+    };
+
     return res.json({
       ok: true,
-      entry: mapPeriodEntry(data, user),
+      entry: mapPeriodEntry(data, userWithResolvedAvatar),
     });
   })
 );
@@ -1094,13 +1173,122 @@ router.get(
   })
 );
 
+router.get(
+  '/focus/timer-state',
+  requireAuth,
+  withAsync(async (req, res) => {
+    const row = await ensureFocusTimerStateRow(req.userId);
+    const currentSeconds = computeFocusTimerCurrentSeconds(row);
+    return res.json({ timerState: mapFocusTimerState(row, currentSeconds) });
+  })
+);
+
+router.patch(
+  '/focus/timer-state',
+  requireAuth,
+  withAsync(async (req, res) => {
+    const body = req.body || {};
+    const existing = await ensureFocusTimerStateRow(req.userId);
+
+    const hasMode = Object.prototype.hasOwnProperty.call(body, 'mode');
+    const hasInitialSeconds = Object.prototype.hasOwnProperty.call(body, 'initialSeconds');
+    const hasCurrentSeconds = Object.prototype.hasOwnProperty.call(body, 'currentSeconds');
+    const hasIsActive = Object.prototype.hasOwnProperty.call(body, 'isActive');
+    const hasStartedAt = Object.prototype.hasOwnProperty.call(body, 'startedAt');
+
+    let mode = String(existing.mode || 'countdown');
+    if (hasMode) {
+      const normalizedMode = String(body.mode || '').trim();
+      if (!FOCUS_TIMER_MODES.has(normalizedMode)) {
+        throw buildHttpError(400, 'mode 仅支持 countdown 或 countup');
+      }
+      mode = normalizedMode;
+    }
+
+    let initialSeconds = clampNonNegativeInt(existing.initial_seconds) || FOCUS_TIMER_DEFAULT_INITIAL_SECONDS;
+    if (hasInitialSeconds) {
+      const parsed = Number.parseInt(String(body.initialSeconds ?? ''), 10);
+      if (!Number.isFinite(parsed) || parsed < FOCUS_TIMER_MIN_INITIAL_SECONDS || parsed > FOCUS_TIMER_MAX_INITIAL_SECONDS) {
+        throw buildHttpError(
+          400,
+          `initialSeconds 必须在 ${FOCUS_TIMER_MIN_INITIAL_SECONDS} 到 ${FOCUS_TIMER_MAX_INITIAL_SECONDS} 之间`
+        );
+      }
+      initialSeconds = parsed;
+    }
+
+    let currentSeconds = clampNonNegativeInt(existing.current_seconds);
+    if (hasCurrentSeconds) {
+      const parsed = Number.parseInt(String(body.currentSeconds ?? ''), 10);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > FOCUS_TIMER_MAX_CURRENT_SECONDS) {
+        throw buildHttpError(400, `currentSeconds 必须在 0 到 ${FOCUS_TIMER_MAX_CURRENT_SECONDS} 之间`);
+      }
+      currentSeconds = parsed;
+    }
+
+    let isActive = Boolean(existing.is_active);
+    if (hasIsActive) {
+      isActive = body.isActive === true;
+    }
+
+    let startedAt = existing.started_at || null;
+    if (hasStartedAt) {
+      if (!body.startedAt) {
+        startedAt = null;
+      } else {
+        const parsedMs = Date.parse(String(body.startedAt));
+        if (!Number.isFinite(parsedMs)) {
+          throw buildHttpError(400, 'startedAt 必须是有效的 ISO 时间');
+        }
+        startedAt = new Date(parsedMs).toISOString();
+      }
+    }
+
+    if (mode === 'countdown') {
+      currentSeconds = Math.min(currentSeconds, initialSeconds);
+    }
+
+    if (isActive && currentSeconds <= 0) {
+      isActive = false;
+      startedAt = null;
+    }
+
+    if (!isActive) {
+      startedAt = null;
+    } else if (!startedAt) {
+      startedAt = nowIso();
+    }
+
+    const { data: updatedRow, error: updateError } = await supabase
+      .from('focus_timer_state')
+      .upsert(
+        {
+          user_id: req.userId,
+          mode,
+          initial_seconds: initialSeconds,
+          current_seconds: currentSeconds,
+          is_active: isActive,
+          started_at: startedAt,
+          updated_at: nowIso(),
+        },
+        { onConflict: 'user_id' }
+      )
+      .select('*')
+      .single();
+    if (updateError) throw updateError;
+
+    const liveCurrentSeconds = computeFocusTimerCurrentSeconds(updatedRow);
+    return res.json({ timerState: mapFocusTimerState(updatedRow, liveCurrentSeconds) });
+  })
+);
+
 router.patch(
   '/focus/stats/complete-session',
   requireAuth,
   withAsync(async (req, res) => {
     const focusMinutesRaw = Number.parseInt(String(req.body?.focusMinutes ?? ''), 10);
     if (!Number.isFinite(focusMinutesRaw) || focusMinutesRaw < 1 || focusMinutesRaw > 240) {
-      throw buildHttpError(400, 'focusMinutes must be between 1 and 240');
+      throw buildHttpError(400, 'focusMinutes 必须在 1 到 240 之间');
     }
     const focusMinutes = focusMinutesRaw;
 
@@ -1149,21 +1337,21 @@ router.post(
     const inviteCode = assertInviteCode(req.body?.inviteCode);
 
     const [requester, target] = await Promise.all([getUserById(req.userId), getUserByInviteCode(inviteCode)]);
-    if (!requester) throw buildHttpError(404, 'User not found');
-    if (!requester.email_verified) throw buildHttpError(403, 'Please verify your email first');
+    if (!requester) throw buildHttpError(404, '用户不存在');
+    if (!requester.email_verified) throw buildHttpError(403, '请先完成邮箱验证');
 
     if (requester.partner_id || requester.bound_invitation_code) {
-      throw buildHttpError(409, 'You are already connected. Disconnect first.');
+      throw buildHttpError(409, '你已处于绑定状态，请先解绑');
     }
     if (inviteCode === requester.invitation_code) {
-      throw buildHttpError(400, 'Cannot connect to your own invite code');
+      throw buildHttpError(400, '不能绑定自己的邀请码');
     }
 
     if (!target || !target.email_verified) {
-      throw buildHttpError(404, 'Invite code does not exist');
+      throw buildHttpError(404, '邀请码不存在');
     }
     if (target.partner_id || target.bound_invitation_code) {
-      throw buildHttpError(409, 'Target account is already connected');
+      throw buildHttpError(409, '对方账号已绑定');
     }
 
     const resolvePendingState = async () => {
@@ -1176,10 +1364,10 @@ router.post(
 
     const throwPendingStateError = (state) => {
       if (state === 'requester_busy') {
-        throw buildHttpError(409, 'You already have a pending binding request. Please resolve it first.');
+        throw buildHttpError(409, '你已有待处理的绑定请求，请先处理后再试。');
       }
       if (state === 'target_busy') {
-        throw buildHttpError(409, 'Target account already has another pending request. Please try later.');
+        throw buildHttpError(409, '对方账号已有其他待处理请求，请稍后再试。');
       }
     };
 
@@ -1188,7 +1376,7 @@ router.post(
       return res.status(202).json({
         ok: true,
         pending: true,
-        message: 'Connect request already sent. Please ask your partner to confirm inside the app.',
+        message: '绑定请求已发送，请让对方在应用内确认。',
       });
     }
     if (initialPendingState !== 'none') {
@@ -1206,7 +1394,7 @@ router.post(
           return res.status(202).json({
             ok: true,
             pending: true,
-            message: 'Connect request already sent. Please ask your partner to confirm inside the app.',
+            message: '绑定请求已发送，请让对方在应用内确认。',
           });
         }
         if (retryPendingState !== 'none') {
@@ -1216,7 +1404,7 @@ router.post(
           bindRequest = await createBindingRequest(requester, target, inviteCode);
         } catch (retryError) {
           if (isPendingBindingConflict(retryError)) {
-            throw buildHttpError(409, 'There is already a pending binding request. Please wait for confirmation.');
+            throw buildHttpError(409, '已存在待处理的绑定请求，请等待确认。');
           }
           throw retryError;
         }
@@ -1226,7 +1414,7 @@ router.post(
           return res.status(202).json({
             ok: true,
             pending: true,
-            message: 'Connect request received. Please ask your partner to confirm inside the app.',
+            message: '绑定请求已送达，请让对方在应用内确认。',
           });
         }
         if (recoveryPendingState !== 'none') {
@@ -1240,8 +1428,8 @@ router.post(
     fireAndForget(
       addNotification(
         req.userId,
-        'Connect request sent',
-        `A binding request has been sent to ${target.email}.`,
+        '绑定请求已发送',
+        `已向 ${target.email} 发送绑定请求。`,
         'system'
       ),
       'notify-bind-request'
@@ -1249,8 +1437,8 @@ router.post(
     fireAndForget(
       addNotification(
         target.id,
-        'Pending binding request',
-        `${requester.name || requester.email} wants to connect with you. Open the Relationship page to accept or reject.`,
+        '待处理的绑定请求',
+        `${requester.name || requester.email} 想与你绑定，请在关系页面同意或拒绝。`,
         'interaction'
       ),
       'notify-bind-target-pending'
@@ -1267,7 +1455,7 @@ router.post(
     return res.status(202).json({
       ok: true,
       pending: true,
-      message: 'Connect request sent. Please ask your partner to confirm inside the app.',
+      message: '绑定请求已发送，请让对方在应用内确认。',
     });
   })
 );
@@ -1277,7 +1465,7 @@ router.post(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
 
     const partner = user.partner_id ? await getUserById(user.partner_id) : null;
     const clearPayload = {
@@ -1295,7 +1483,7 @@ router.post(
 
     const selfUpdated = (updatedUsers || []).find((row) => row.id === user.id);
     if (!selfUpdated) {
-      throw buildHttpError(500, 'Failed to update disconnect state');
+      throw buildHttpError(500, '更新解绑状态失败');
     }
 
     const settingsSyncResults = await Promise.allSettled(
@@ -1314,8 +1502,8 @@ router.post(
       fireAndForget(
         addNotification(
           partner.id,
-          'Relationship disconnected',
-          `${user.name || user.email} removed the binding relationship.`,
+          '关系已解除',
+          `${user.name || user.email} 解除了绑定关系。`,
           'interaction'
         ),
         'notify-partner-disconnect'
@@ -1323,7 +1511,7 @@ router.post(
     }
 
     fireAndForget(
-      addNotification(user.id, 'Disconnected', 'You have disconnected the current relationship.', 'system'),
+      addNotification(user.id, '已解除绑定', '你已解除当前绑定关系。', 'system'),
       'notify-self-disconnect'
     );
 
@@ -1337,7 +1525,7 @@ router.get(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
     const sharedUserIds = buildSharedUserIds(user);
 
     const pagination = parsePaginationQuery(req.query);
@@ -1372,7 +1560,7 @@ router.post(
   withAsync(async (req, res) => {
     const { title, date, image, rotation } = req.body || {};
     if (!title || !date || !image) {
-      throw buildHttpError(400, 'title, date and image are required');
+      throw buildHttpError(400, 'title、date、image 为必填项');
     }
 
     const normalizedTitle = normalizeRequiredText(title, 'title', MEMORY_TITLE_MAX_LENGTH);
@@ -1443,10 +1631,10 @@ router.post(
   withAsync(async (req, res) => {
     const items = Array.isArray(req.body?.memories) ? req.body.memories : [];
     if (items.length === 0) {
-      throw buildHttpError(400, 'memories is required');
+      throw buildHttpError(400, 'memories 为必填项');
     }
     if (items.length > 30) {
-      throw buildHttpError(400, 'You can upload up to 30 images per batch');
+      throw buildHttpError(400, '单次最多上传 30 张图片');
     }
 
     const uploadedStorageKeys = [];
@@ -1521,7 +1709,7 @@ router.patch(
       .eq('user_id', req.userId)
       .maybeSingle();
     if (existingError) throw existingError;
-    if (!existingMemory) throw buildHttpError(404, 'Memory not found');
+    if (!existingMemory) throw buildHttpError(404, '回忆不存在');
 
     if (typeof title === 'string') {
       payload.title = normalizeRequiredText(title, 'title', MEMORY_TITLE_MAX_LENGTH);
@@ -1549,11 +1737,11 @@ router.patch(
     if (typeof rotation === 'string') {
       const normalizedRotation = normalizeMemoryRotation(rotation);
       if (!normalizedRotation) {
-        throw buildHttpError(400, 'rotation is invalid');
+        throw buildHttpError(400, 'rotation 参数无效');
       }
       payload.rotation = normalizedRotation;
     }
-    if (Object.keys(payload).length === 0) throw buildHttpError(400, 'No fields to update');
+    if (Object.keys(payload).length === 0) throw buildHttpError(400, '没有可更新的字段');
 
     const previousStorageKey = extractStorageKeyFromImage(existingMemory.image);
 
@@ -1593,7 +1781,7 @@ router.delete(
       .eq('user_id', req.userId)
       .maybeSingle();
     if (existingError) throw existingError;
-    if (!existingMemory) throw buildHttpError(404, 'Memory not found');
+    if (!existingMemory) throw buildHttpError(404, '回忆不存在');
 
     const previousStorageKey = extractStorageKeyFromImage(existingMemory.image);
 
@@ -1609,7 +1797,7 @@ router.get(
   requireAuth,
   withAsync(async (req, res) => {
     const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, 'User not found');
+    if (!user) throw buildHttpError(404, '用户不存在');
     const sharedUserIds = buildSharedUserIds(user);
 
     const [events, authorMap] = await Promise.all([
@@ -1627,7 +1815,7 @@ router.post(
   withAsync(async (req, res) => {
     const { title, subtitle, date, type, image } = req.body || {};
     if (!title || !date || !type) {
-      throw buildHttpError(400, 'title, date and type are required');
+      throw buildHttpError(400, 'title、date、type 为必填项');
     }
 
     const normalizedTitle = normalizeRequiredText(title, 'title', EVENT_TITLE_MAX_LENGTH);
@@ -1702,7 +1890,7 @@ router.patch(
       payload.type = normalizeRequiredText(type, 'type', EVENT_TYPE_MAX_LENGTH);
     }
     if (typeof image === 'string') payload.image = image;
-    if (Object.keys(payload).length === 0) throw buildHttpError(400, 'No fields to update');
+    if (Object.keys(payload).length === 0) throw buildHttpError(400, '没有可更新的字段');
 
     const { data, error } = await supabase
       .from('events')
@@ -1730,11 +1918,15 @@ router.get(
   '/notifications',
   requireAuth,
   withAsync(async (req, res) => {
+    const limitRaw = Number.parseInt(String(req.query?.limit ?? ''), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 200;
+
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', req.userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(limit);
     if (error) throw error;
     return res.json({ notifications: (data || []).map(mapNotification) });
   })
@@ -1746,7 +1938,7 @@ router.post(
   withAsync(async (req, res) => {
     const { title, message, type } = req.body || {};
     if (!title || !message) {
-      throw buildHttpError(400, 'title and message are required');
+      throw buildHttpError(400, 'title 和 message 为必填项');
     }
     const notificationType = type === 'interaction' ? 'interaction' : 'system';
 
@@ -1762,6 +1954,20 @@ router.post(
       .single();
     if (error) throw error;
     return res.status(201).json({ notification: mapNotification(data) });
+  })
+);
+
+router.patch(
+  '/notifications/read-all',
+  requireAuth,
+  withAsync(async (req, res) => {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', req.userId)
+      .eq('read', false);
+    if (error) throw error;
+    return res.json({ ok: true });
   })
 );
 

@@ -2,14 +2,30 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from './config.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const withTimeout = (promise, timeoutMs, timeoutMessage) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 
 const isRetriableNetworkError = (error) => {
-  const message = String(error?.message || error || '');
+  const message = String(error?.message || error || '').toLowerCase();
   if (error?.name === 'AbortError') return true;
-  if (message.includes('UND_ERR_CONNECT_TIMEOUT')) return true;
-  if (message.includes('Connect Timeout Error')) return true;
+  if (message.includes('und_err_connect_timeout')) return true;
+  if (message.includes('connect timeout error')) return true;
   if (message.includes('fetch failed')) return true;
-  if (message.includes('ECONNRESET')) return true;
+  if (message.includes('econnreset')) return true;
+  if (message.includes('terminated')) return true;
+  if (message.includes('body timeout')) return true;
+  if (message.includes('supabase_body_timeout')) return true;
   return false;
 };
 
@@ -34,9 +50,19 @@ const robustFetch = async (url, options = {}) => {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      return await fetch(url, {
+      const response = await fetch(url, {
         ...options,
         signal: controller.signal,
+      });
+      const bodyText = await withTimeout(
+        response.text(),
+        timeoutMs,
+        `SUPABASE_BODY_TIMEOUT_${timeoutMs}`
+      );
+      return new Response(bodyText, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
       });
     } catch (error) {
       if (attempt === maxAttempts || !isRetriableNetworkError(error)) {

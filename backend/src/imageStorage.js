@@ -247,3 +247,40 @@ export const persistMemoryImage = async (image, userId) => {
   const result = await persistMemoryImageDetailed(image, userId);
   return result.image;
 };
+
+export const persistAvatarImageDetailed = async (avatar, userId) => {
+  const parsed = parseDataUrl(avatar);
+  if (!parsed) {
+    return { avatar, uploaded: false, storageKey: null };
+  }
+
+  ensureDataUrlSizeWithinLimit(parsed);
+
+  if (!config.imageStorageEnabled || !config.imageBucket) {
+    return { avatar, uploaded: false, storageKey: null };
+  }
+
+  const ext = MIME_TO_EXT[parsed.mime] || 'jpg';
+  const bytes = Buffer.from(parsed.base64, 'base64');
+  if (!bytes.length) {
+    throw buildHttpError(400, '头像内容为空');
+  }
+
+  await ensureBucketReady();
+
+  const key = `avatars/${userId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from(config.imageBucket).upload(key, bytes, {
+    contentType: parsed.mime,
+    upsert: false,
+    cacheControl: '31536000',
+  });
+
+  if (uploadError) throw uploadError;
+
+  const avatarValue = toStorageRef(key);
+  return {
+    avatar: avatarValue || avatar,
+    uploaded: true,
+    storageKey: key,
+  };
+};

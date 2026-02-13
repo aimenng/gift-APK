@@ -67,20 +67,20 @@ android {
         official {
             dimension "channel"
             applicationId appIdBase
-            resValue 'string', 'app_name', 'Couple Connection'
+            resValue 'string', 'app_name', 'XLGift'
             manifestPlaceholders = [channelName: 'official']
         }
         xiaomi {
             dimension "channel"
             applicationId appIdXiaomi
-            resValue 'string', 'app_name', 'Couple Connection 小米版'
+            resValue 'string', 'app_name', 'XLGift'
             versionNameSuffix '-xm'
             manifestPlaceholders = [channelName: 'xiaomi']
         }
         huawei {
             dimension "channel"
             applicationId appIdHuawei
-            resValue 'string', 'app_name', 'Couple Connection 华为版'
+            resValue 'string', 'app_name', 'XLGift'
             versionNameSuffix '-hw'
             manifestPlaceholders = [channelName: 'huawei']
         }

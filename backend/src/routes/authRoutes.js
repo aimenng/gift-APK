@@ -11,17 +11,23 @@ import {
   assertVerificationCode,
   buildHttpError,
   createUniqueInviteCode,
+  ensureUserInvitationCode,
   ensureUserSettings,
   generateVerificationCode,
-  getPartnerByUser,
+  getFixedInviteCodeForEmail,
   getUserByEmail,
-  getUserById,
   hashValue,
   nowIso,
   withAsync,
 } from '../helpers.js';
 import { config } from '../config.js';
 import { sendPasswordResetCodeEmail, sendSignupCodeEmail } from '../emailService.js';
+import {
+  extractStorageKeyFromImage,
+  persistAvatarImageDetailed,
+  removeStoredMemoryImages,
+  resolveMemoryImageUrl,
+} from '../imageStorage.js';
 
 const router = Router();
 
@@ -32,6 +38,10 @@ const RESET_RESEND_COOLDOWN_SECONDS = config.resetCodeCooldownSeconds;
 const MAX_VERIFY_ATTEMPTS = config.verificationMaxAttempts;
 const PASSWORD_HASH_ROUNDS = config.passwordHashRounds;
 const AUTH_MIN_LATENCY_MS = config.authUniformMinLatencyMs;
+const AUTH_USER_COLUMNS =
+  'id,email,password_hash,invitation_code,bound_invitation_code,email_verified,created_at,name,avatar,gender,partner_id,token_version';
+const AUTH_USER_PUBLIC_COLUMNS =
+  'id,email,invitation_code,bound_invitation_code,email_verified,created_at,name,avatar,gender,partner_id,token_version';
 const REGISTER_CODE_RESPONSE_MESSAGE =
   '如果邮箱可用于注册，验证码将发送到该邮箱；若已注册，请直接登录或使用忘记密码。';
 const RESET_CODE_RESPONSE_MESSAGE = '如果邮箱已注册，验证码将发送到该邮箱';
@@ -66,6 +76,16 @@ const fireAndForget = (task, label) => {
   }
 };
 
+const cleanupStoredAvatars = async (keys, label) => {
+  const validKeys = (Array.isArray(keys) ? keys : []).filter(Boolean);
+  if (validKeys.length === 0) return;
+  try {
+    await removeStoredMemoryImages(validKeys);
+  } catch (error) {
+    console.error(`[${label}] failed to cleanup stored avatars`, error?.message || error);
+  }
+};
+
 const getEmailVerification = async (email, purpose) => {
   const { data, error } = await supabase
     .from('email_verifications')
@@ -85,12 +105,26 @@ const ensureNotFrequent = (lastSentAt, cooldownSeconds) => {
   }
 };
 
+const mapUserForResponse = async (userRow) => {
+  if (!userRow) return null;
+  const avatar = await resolveMemoryImageUrl(userRow.avatar || '');
+  return mapUser({
+    ...userRow,
+    avatar,
+  });
+};
+
 const buildAuthPayload = async (userRow) => {
-  const partner = await getPartnerByUser(userRow);
+  const normalizedUser = await ensureUserInvitationCode(userRow);
+  const partner = await getPartnerForAuth(normalizedUser, 'auth-build-payload');
+  const [mappedUser, mappedPartner] = await Promise.all([
+    mapUserForResponse(normalizedUser),
+    mapUserForResponse(partner),
+  ]);
   return {
-    token: signToken(userRow.id, userRow.token_version),
-    user: mapUser(userRow),
-    partner: mapUser(partner),
+    token: signToken(normalizedUser.id, normalizedUser.token_version),
+    user: mappedUser,
+    partner: mappedPartner,
   };
 };
 
@@ -103,6 +137,54 @@ const isUsersEmailUniqueViolation = (error) => {
       message.includes('duplicate key value') ||
       details.includes('(email)'))
   );
+};
+
+const isTransientSupabaseError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+  return (
+    message.includes('aborterror') ||
+    details.includes('aborterror') ||
+    message.includes('fetch failed') ||
+    details.includes('fetch failed') ||
+    message.includes('connect timeout') ||
+    details.includes('connect timeout') ||
+    message.includes('und_err_connect_timeout') ||
+    details.includes('und_err_connect_timeout')
+  );
+};
+
+const getPartnerForAuth = async (userRow, contextLabel) => {
+  try {
+    if (!userRow?.partner_id) return null;
+    return await getAuthUserById(userRow.partner_id);
+  } catch (error) {
+    if (isTransientSupabaseError(error)) {
+      console.warn(`[${contextLabel}] partner lookup skipped due transient backend error`);
+      return null;
+    }
+    throw error;
+  }
+};
+
+const getAuthUserByEmail = async (email) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select(AUTH_USER_COLUMNS)
+    .eq('email', email)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+const getAuthUserById = async (userId) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select(AUTH_USER_PUBLIC_COLUMNS)
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
 };
 
 router.post(
@@ -206,11 +288,8 @@ router.post(
     }
 
     // Special email → fixed invitation code mapping (must match DB constraint)
-    const SPECIAL_INVITE_CODES = {
-      '2305427577@qq.com': 'XHB-LLQ',
-      '1057289305@qq.com': 'LLQ-XHB',
-    };
-    const getInviteCodeForEmail = async (e) => SPECIAL_INVITE_CODES[e] || (await createUniqueInviteCode());
+    const getInviteCodeForEmail = async (targetEmail) =>
+      getFixedInviteCodeForEmail(targetEmail) || (await createUniqueInviteCode());
 
     if (existedUser) {
       const invitationCode = existedUser.invitation_code || (await getInviteCodeForEmail(email));
@@ -372,7 +451,7 @@ router.post(
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
-    const userRow = await getUserByEmail(email);
+    const userRow = await getAuthUserByEmail(email);
     if (!userRow?.email_verified) {
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
@@ -415,7 +494,7 @@ router.post(
     assertEmail(email);
     assertPassword(password);
 
-    const userRow = await getUserByEmail(email);
+    const userRow = await getAuthUserByEmail(email);
     if (!userRow?.email_verified) {
       throw buildHttpError(401, '邮箱或密码错误');
     }
@@ -425,18 +504,22 @@ router.post(
       throw buildHttpError(401, '邮箱或密码错误');
     }
 
-    const [partner, token] = await Promise.all([
-      getPartnerByUser(userRow),
-      Promise.resolve(signToken(userRow.id, userRow.token_version)),
+    const normalizedUser = await ensureUserInvitationCode(userRow);
+
+    const token = signToken(normalizedUser.id, normalizedUser.token_version);
+    const partner = await getPartnerForAuth(normalizedUser, 'auth-login');
+    const [mappedUser, mappedPartner] = await Promise.all([
+      mapUserForResponse(normalizedUser),
+      mapUserForResponse(partner),
     ]);
 
-    fireAndForget(ensureUserSettings(userRow.id, Boolean(userRow.partner_id)), 'ensure-settings-login');
+    fireAndForget(ensureUserSettings(normalizedUser.id, Boolean(normalizedUser.partner_id)), 'ensure-settings-login');
     fireAndForget(addNotification(userRow.id, '登录成功', '欢迎回来，数据已同步。', 'system'), 'notify-login');
 
     return res.json({
       token,
-      user: mapUser(userRow),
-      partner: mapUser(partner),
+      user: mappedUser,
+      partner: mappedPartner,
     });
   })
 );
@@ -445,18 +528,23 @@ router.get(
   '/me',
   requireAuth,
   withAsync(async (req, res) => {
-    const userRow = await getUserById(req.userId);
-    if (!userRow) {
+    const rawUserRow = await getAuthUserById(req.userId);
+    if (!rawUserRow) {
       throw buildHttpError(404, '用户不存在');
     }
 
-    const partner = await getPartnerByUser(userRow);
+    const userRow = await ensureUserInvitationCode(rawUserRow);
+    const partner = await getPartnerForAuth(userRow, 'auth-me');
+    const [mappedUser, mappedPartner] = await Promise.all([
+      mapUserForResponse(userRow),
+      mapUserForResponse(partner),
+    ]);
 
     fireAndForget(ensureUserSettings(userRow.id, Boolean(userRow.partner_id)), 'ensure-settings-me');
 
     return res.json({
-      user: mapUser(userRow),
-      partner: mapUser(partner),
+      user: mappedUser,
+      partner: mappedPartner,
     });
   })
 );
@@ -467,24 +555,65 @@ router.patch(
   withAsync(async (req, res) => {
     const { name, avatar, gender } = req.body || {};
     const payload = {};
+    const { data: existingUser, error: existingUserError } = await supabase
+      .from('users')
+      .select('id,avatar')
+      .eq('id', req.userId)
+      .maybeSingle();
+    if (existingUserError) throw existingUserError;
+    if (!existingUser) {
+      throw buildHttpError(404, '用户不存在');
+    }
+
+    let uploadedStorageKey = null;
 
     if (typeof name === 'string') payload.name = name.trim().slice(0, 64);
-    if (typeof avatar === 'string') payload.avatar = avatar;
+    if (typeof avatar === 'string') {
+      const normalizedAvatar = avatar.trim();
+      if (!normalizedAvatar) {
+        payload.avatar = '';
+      } else {
+        if (!normalizedAvatar.startsWith('data:') && normalizedAvatar.length > config.maxAvatarLength) {
+          throw buildHttpError(400, '头像地址过长，请重新上传');
+        }
+        if (normalizedAvatar.startsWith('data:') && normalizedAvatar.length > config.maxAvatarLength) {
+          throw buildHttpError(400, '头像图片过大，请压缩后再上传');
+        }
+
+        const persisted = await persistAvatarImageDetailed(normalizedAvatar, req.userId);
+        payload.avatar = persisted.avatar;
+        uploadedStorageKey = persisted.storageKey;
+      }
+    }
     if (gender === 'male' || gender === 'female') payload.gender = gender;
 
     if (Object.keys(payload).length === 0) {
       throw buildHttpError(400, '没有可更新的字段');
     }
 
-    const { data, error } = await supabase
-      .from('users')
-      .update(payload)
-      .eq('id', req.userId)
-      .select('*')
-      .single();
-    if (error) throw error;
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', req.userId)
+        .select('*')
+        .single();
+      if (error) throw error;
 
-    return res.json({ user: mapUser(data) });
+      const previousStorageKey = extractStorageKeyFromImage(existingUser.avatar);
+      const nextStorageKey = extractStorageKeyFromImage(data.avatar);
+      if (previousStorageKey && previousStorageKey !== nextStorageKey) {
+        fireAndForget(
+          cleanupStoredAvatars([previousStorageKey], 'avatar-update-previous-cleanup'),
+          'avatar-update-previous-cleanup'
+        );
+      }
+
+      return res.json({ user: await mapUserForResponse(data) });
+    } catch (error) {
+      await cleanupStoredAvatars([uploadedStorageKey], 'avatar-update-cleanup');
+      throw error;
+    }
   })
 );
 
