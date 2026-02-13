@@ -218,6 +218,18 @@ const buildPaginationMeta = (page, limit, total) => {
   };
 };
 
+const buildPaginationMetaWithoutCount = (page, limit, rowsLength) => {
+  const hasMore = rowsLength >= limit;
+  const totalPages = page + (hasMore ? 1 : 0);
+  return {
+    page,
+    limit,
+    total: page * limit + (hasMore ? 1 : 0),
+    totalPages,
+    hasMore,
+  };
+};
+
 const buildSharedUserIds = (userRow) => {
   const ids = [userRow?.id].filter(Boolean);
   if (userRow?.partner_id) ids.push(userRow.partner_id);
@@ -235,7 +247,8 @@ const loadUserMapByIds = async (userIds) => {
   return new Map((data || []).map((row) => [row.id, row]));
 };
 
-const loadMemoriesByUsers = async (userIds, pagination) => {
+const loadMemoriesByUsers = async (userIds, pagination, options = {}) => {
+  const includeCount = options.includeCount !== false;
   const ids = Array.isArray(userIds) ? userIds.filter(Boolean) : [];
   if (ids.length === 0) {
     return {
@@ -245,18 +258,22 @@ const loadMemoriesByUsers = async (userIds, pagination) => {
   }
 
   if (pagination?.enabled) {
-    const { data, error, count } = await supabase
-      .from('memories')
-      .select('*', { count: 'exact' })
+    const query = (includeCount
+      ? supabase.from('memories').select('*', { count: 'exact' })
+      : supabase.from('memories').select('*'))
       .in('user_id', ids)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
       .range(pagination.from, pagination.to);
+    const { data, error, count } = await query;
     if (error) throw error;
     const rows = data || [];
+    const paginationMeta = includeCount
+      ? buildPaginationMeta(pagination.page, pagination.limit, count ?? rows.length)
+      : buildPaginationMetaWithoutCount(pagination.page, pagination.limit, rows.length);
     return {
       rows,
-      pagination: buildPaginationMeta(pagination.page, pagination.limit, count ?? rows.length),
+      pagination: paginationMeta,
     };
   }
 
@@ -1326,9 +1343,10 @@ router.get(
     const pagination = parsePaginationQuery(req.query);
     const includeYearStats =
       !pagination.enabled || String(req.query?.includeYearStats || '').trim() === '1';
+    const includeCount = String(req.query?.includeCount || '').trim() !== '0';
 
     const [memoriesResult, yearStats, authorMap] = await Promise.all([
-      loadMemoriesByUsers(sharedUserIds, pagination),
+      loadMemoriesByUsers(sharedUserIds, pagination, { includeCount }),
       includeYearStats ? loadYearStatsByUsers(sharedUserIds) : Promise.resolve(null),
       loadUserMapByIds(sharedUserIds),
     ]);

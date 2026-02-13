@@ -14,6 +14,44 @@ const MIME_TO_EXT = {
 };
 
 let bucketReadyPromise = null;
+const signedUrlCache = new Map();
+const SIGNED_URL_CACHE_MAX_ENTRIES = 8000;
+const SIGNED_URL_CACHE_SAFETY_MS = 30 * 1000;
+
+const pruneSignedUrlCache = () => {
+  const now = Date.now();
+  for (const [key, value] of signedUrlCache.entries()) {
+    if (!value?.url || !value?.expiresAt || value.expiresAt <= now) {
+      signedUrlCache.delete(key);
+    }
+  }
+  while (signedUrlCache.size > SIGNED_URL_CACHE_MAX_ENTRIES) {
+    const oldestKey = signedUrlCache.keys().next().value;
+    if (!oldestKey) break;
+    signedUrlCache.delete(oldestKey);
+  }
+};
+
+const getCachedSignedUrl = (storageKey) => {
+  if (!storageKey) return null;
+  const hit = signedUrlCache.get(storageKey);
+  if (!hit?.url || !hit?.expiresAt) return null;
+  if (hit.expiresAt <= Date.now()) {
+    signedUrlCache.delete(storageKey);
+    return null;
+  }
+  return hit.url;
+};
+
+const saveSignedUrlCache = (storageKey, deliveryUrl, ttlSeconds) => {
+  if (!storageKey || !deliveryUrl) return;
+  const ttlMs = Math.max(5_000, Number(ttlSeconds || 0) * 1000 - SIGNED_URL_CACHE_SAFETY_MS);
+  signedUrlCache.set(storageKey, {
+    url: deliveryUrl,
+    expiresAt: Date.now() + ttlMs,
+  });
+  pruneSignedUrlCache();
+};
 
 const normalizeErrorMessage = (error) => String(error?.message || error || '').toLowerCase();
 
@@ -140,8 +178,18 @@ export const resolveMemoryImageUrl = async (image) => {
   const storageKey = extractStorageKeyFromImage(image);
   if (!storageKey) return image;
 
+  const cached = getCachedSignedUrl(storageKey);
+  if (cached) return cached;
+
   try {
     const resolved = await buildDeliveryUrlForKey(storageKey);
+    if (resolved) {
+      saveSignedUrlCache(
+        storageKey,
+        resolved,
+        config.imageBucketPublic ? 24 * 60 * 60 : config.imageSignedUrlTtlSeconds
+      );
+    }
     return resolved || image;
   } catch (error) {
     console.warn('[memory-image-resolve] fallback to raw image value:', error?.message || error);
@@ -155,6 +203,7 @@ export const removeStoredMemoryImages = async (keys) => {
   if (validKeys.length === 0) return;
   const { error } = await supabase.storage.from(config.imageBucket).remove(validKeys);
   if (error) throw error;
+  validKeys.forEach((key) => signedUrlCache.delete(key));
 };
 
 export const persistMemoryImageDetailed = async (image, userId) => {

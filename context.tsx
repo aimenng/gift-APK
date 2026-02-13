@@ -90,7 +90,13 @@ const DEFAULT_CONNECTION = {
   boundInviteCode: null as string | null,
   togetherDate: '2021-10-12',
 };
-const CLOUD_SYNC_PAGE_SIZE = 50;
+type CloudSyncMode = 'full' | 'light';
+
+const CLOUD_SYNC_PAGE_SIZE = 30;
+const CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE = 8;
+const CLOUD_FULL_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+const CLOUD_SYNC_INTERVAL_CONNECTED_MS = 45_000;
+const CLOUD_SYNC_INTERVAL_DISCONNECTED_MS = 20_000;
 const CLOUD_MEMORY_BATCH_PAYLOAD_SOFT_LIMIT = 8 * 1024 * 1024;
 const CLOUD_MEMORY_BATCH_MAX_ITEMS_PER_REQUEST = 4;
 
@@ -167,6 +173,25 @@ const dedupeRecentDuplicateEvents = (items: AnniversaryEvent[]): AnniversaryEven
   return deduped;
 };
 
+const mergeNewestFirstMemories = (latestPage: Memory[], existing: Memory[]): Memory[] => {
+  const merged: Memory[] = [];
+  const seen = new Set<string>();
+
+  for (const item of latestPage) {
+    if (!item?.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+
+  for (const item of existing) {
+    if (!item?.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+
+  return merged;
+};
+
 const estimatePayloadBytes = (payload: unknown): number => {
   try {
     return new Blob([JSON.stringify(payload)]).size;
@@ -217,6 +242,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [pendingBindingRequests, setPendingBindingRequests] = useState<PendingBindingRequest[]>([]);
   const syncInFlightRef = useRef(false);
   const syncQueuedRef = useRef(false);
+  const syncEpochRef = useRef(0);
+  const lastFullSyncAtRef = useRef(0);
 
   const refreshPendingBindingRequests = async () => {
     const token = getAuthToken();
@@ -233,42 +260,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const syncFromCloud = async () => {
+  const syncFromCloud = async (mode: CloudSyncMode = 'full') => {
     if (syncInFlightRef.current) {
       syncQueuedRef.current = true;
       return;
     }
     syncInFlightRef.current = true;
-    const token = getAuthToken();
-    setHasCloudSession(Boolean(token));
-    if (!token) {
-      setMemories([]);
-      setYearStats([]);
-      setEvents([]);
-      setConnectionState(DEFAULT_CONNECTION);
-      setPendingBindingRequests([]);
-      return;
-    }
+    const syncEpoch = syncEpochRef.current + 1;
+    syncEpochRef.current = syncEpoch;
 
     try {
+      const token = getAuthToken();
+      setHasCloudSession(Boolean(token));
+      if (!token) {
+        setMemories([]);
+        setYearStats([]);
+        setEvents([]);
+        setConnectionState(DEFAULT_CONNECTION);
+        setPendingBindingRequests([]);
+        return;
+      }
+
+      const shouldRunFullSync =
+        mode === 'full' || Date.now() - lastFullSyncAtRef.current >= CLOUD_FULL_SYNC_COOLDOWN_MS;
       const [firstPage, pendingResult] = await Promise.all([
         apiGet<AppStateResponse>(`/app/state?page=1&limit=${CLOUD_SYNC_PAGE_SIZE}&includeYearStats=0`),
         apiGet<PendingBindingsResponse>('/bindings/pending').catch(() => ({ requests: [] })),
       ]);
+      if (syncEpochRef.current !== syncEpoch) return;
 
       const firstPageMemories = [...(firstPage.memories || [])];
-      const allMemories = [...firstPageMemories];
       const totalPages = Math.max(1, firstPage.memoryPagination?.totalPages || 1);
       const pagesToFetch = Array.from({ length: Math.max(0, totalPages - 1) }, (_, idx) => idx + 2);
-      const chunkSize = 8;
+      const serverYearStats =
+        firstPage.yearStats && firstPage.yearStats.length > 0 ? firstPage.yearStats : null;
 
       // Hydrate critical data immediately for fast first paint.
-      setMemories(firstPageMemories);
-      setYearStats(
-        firstPage.yearStats && firstPage.yearStats.length > 0
-          ? firstPage.yearStats
-          : computeYearStatsFromMemories(firstPageMemories)
-      );
+      if (shouldRunFullSync) {
+        setMemories(firstPageMemories);
+        setYearStats(serverYearStats || computeYearStatsFromMemories(firstPageMemories));
+      } else {
+        setMemories((prev) => {
+          const merged = mergeNewestFirstMemories(firstPageMemories, prev);
+          if (!serverYearStats) {
+            setYearStats(computeYearStatsFromMemories(merged));
+          }
+          return merged;
+        });
+        if (serverYearStats) {
+          setYearStats(serverYearStats);
+        }
+      }
       setEvents(dedupeRecentDuplicateEvents(firstPage.events || []));
       setPendingBindingRequests(pendingResult.requests || []);
       if (firstPage.settings) {
@@ -280,25 +322,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // Fetch extra memory pages in small parallel batches to reduce cold-start sync latency.
-      for (let i = 0; i < pagesToFetch.length; i += chunkSize) {
-        const chunk = pagesToFetch.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(
-          chunk.map((page) =>
-            apiGet<MemoriesPageResponse>(`/memories?page=${page}&limit=${CLOUD_SYNC_PAGE_SIZE}`)
-          )
-        );
-        chunkResults.forEach((next) => {
-          allMemories.push(...(next.memories || []));
-        });
+      if (!shouldRunFullSync || pagesToFetch.length === 0) {
+        return;
       }
+      lastFullSyncAtRef.current = Date.now();
 
-      if (allMemories.length !== firstPageMemories.length) {
-        setMemories(allMemories);
-        if (!firstPage.yearStats || firstPage.yearStats.length === 0) {
-          setYearStats(computeYearStatsFromMemories(allMemories));
+      // Fetch extra pages in background to keep login/navigation responsive.
+      void (async () => {
+        const allMemories = [...firstPageMemories];
+        for (let i = 0; i < pagesToFetch.length; i += CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE) {
+          if (syncEpochRef.current !== syncEpoch) return;
+          const chunk = pagesToFetch.slice(i, i + CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE);
+          const chunkResults = await Promise.all(
+            chunk.map((page) =>
+              apiGet<MemoriesPageResponse>(
+                `/memories?page=${page}&limit=${CLOUD_SYNC_PAGE_SIZE}&includeCount=0`
+              )
+            )
+          );
+          chunkResults.forEach((next) => {
+            allMemories.push(...(next.memories || []));
+          });
         }
-      }
+
+        if (syncEpochRef.current !== syncEpoch) return;
+        if (allMemories.length !== firstPageMemories.length) {
+          setMemories(allMemories);
+          if (!serverYearStats) {
+            setYearStats(computeYearStatsFromMemories(allMemories));
+          }
+        }
+      })().catch((error) => {
+        console.error('Failed to hydrate extra memory pages:', error);
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setHasCloudSession(false);
@@ -306,31 +362,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setYearStats([]);
         setEvents([]);
         setConnectionState(DEFAULT_CONNECTION);
+        setPendingBindingRequests([]);
       }
       console.error('Failed to sync cloud app state:', error);
     } finally {
       syncInFlightRef.current = false;
       if (syncQueuedRef.current) {
         syncQueuedRef.current = false;
-        void syncFromCloud();
+        void syncFromCloud('full');
       }
     }
   };
 
   useEffect(() => {
-    syncFromCloud();
+    void syncFromCloud('full');
     return onSessionSync(() => {
-      syncFromCloud();
+      void syncFromCloud('full');
     });
   }, []);
 
   useEffect(() => {
     if (!hasCloudSession) return;
-    const syncIntervalMs = connectionState.isConnected ? 30_000 : 10_000;
-    const timer = window.setInterval(() => {
-      syncFromCloud();
-    }, syncIntervalMs);
-    return () => window.clearInterval(timer);
+    const syncIntervalMs = connectionState.isConnected
+      ? CLOUD_SYNC_INTERVAL_CONNECTED_MS
+      : CLOUD_SYNC_INTERVAL_DISCONNECTED_MS;
+
+    const runLightSync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      void syncFromCloud('light');
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void syncFromCloud('light');
+      }
+    };
+
+    const timer = window.setInterval(runLightSync, syncIntervalMs);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    return () => {
+      window.clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [hasCloudSession, connectionState.isConnected]);
 
   const addMemory = async (newMemory: Omit<Memory, 'id' | 'rotation'>) => {

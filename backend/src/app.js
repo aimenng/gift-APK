@@ -60,6 +60,12 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/', (_req, res) => {
+  res.status(200).send(
+    `Backend is running. Frontend dev server: ${config.frontendUrl || 'http://localhost:5173'}`
+  );
+});
+
 app.use('/api', apiRateLimiter);
 app.use('/api/auth', authRateLimiter);
 app.use('/api/auth/login', sensitiveAuthLimiter);
