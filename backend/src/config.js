@@ -2,7 +2,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 
 const envPath = process.env.BACKEND_ENV_FILE || path.resolve(process.cwd(), 'backend/.env');
-dotenv.config({ path: envPath });
+dotenv.config({ path: envPath, override: true });
 
 const parseNumber = (value, fallback) => {
   const parsed = Number(value);
