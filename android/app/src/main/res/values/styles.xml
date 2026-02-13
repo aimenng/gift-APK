@@ -13,15 +13,10 @@
         <item name="android:background">@null</item>
     </style>
 
-    <!--
-      启动图规范：
-      1) 背景色改 colors.xml 的 splashBackground
-      2) 中央图标替换为 drawable-v24/ic_launcher_foreground.xml（或对应 png）
-      3) Android 12+ 使用 windowSplashScreen* 属性，低版本回退到 android:background
-    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splashBackground</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_empty</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:background">@drawable/splash_background</item>
     </style>
