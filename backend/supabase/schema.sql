@@ -140,3 +140,95 @@ create index if not exists idx_email_verifications_expires_at on public.email_ve
 create unique index if not exists idx_binding_requests_requester_pending_unique on public.binding_requests (requester_user_id) where status = 'pending';
 create unique index if not exists idx_binding_requests_target_pending_unique on public.binding_requests (target_user_id) where status = 'pending';
 create index if not exists idx_binding_requests_pending_expires_at on public.binding_requests (expires_at) where status = 'pending';
+
+-- Atomic focus session completion. See migration_20261024_focus_session_atomic.sql for
+-- why the read-modify-write has to happen inside a single locked transaction.
+create or replace function public.complete_focus_session(
+  p_user_id uuid,
+  p_focus_minutes integer,
+  p_today date
+)
+returns public.focus_stats
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_row public.focus_stats%rowtype;
+  v_prev_date date;
+  v_prev_streak integer;
+  v_today_focus integer;
+  v_today_sessions integer;
+  v_streak integer;
+begin
+  if p_user_id is null then
+    raise exception 'p_user_id is required';
+  end if;
+
+  if p_focus_minutes is null or p_focus_minutes < 1 then
+    raise exception 'p_focus_minutes must be at least 1';
+  end if;
+
+  if p_today is null then
+    raise exception 'p_today is required';
+  end if;
+
+  select * into v_row
+    from public.focus_stats
+   where user_id = p_user_id
+     for update;
+
+  if not found then
+    insert into public.focus_stats (
+      user_id,
+      today_focus_minutes,
+      today_sessions,
+      streak,
+      total_sessions,
+      last_focus_date,
+      updated_at
+    ) values (
+      p_user_id, 0, 0, 0, 0, null, timezone('utc', now())
+    )
+    on conflict (user_id) do update
+       set user_id = excluded.user_id
+    returning * into v_row;
+
+    select * into v_row
+      from public.focus_stats
+     where user_id = p_user_id
+       for update;
+  end if;
+
+  v_prev_date := v_row.last_focus_date;
+  v_prev_streak := coalesce(v_row.streak, 0);
+
+  if v_prev_date = p_today then
+    v_today_focus := coalesce(v_row.today_focus_minutes, 0) + p_focus_minutes;
+    v_today_sessions := coalesce(v_row.today_sessions, 0) + 1;
+    v_streak := case when v_prev_streak > 0 then v_prev_streak else 1 end;
+  else
+    v_today_focus := p_focus_minutes;
+    v_today_sessions := 1;
+    v_streak := case
+                  when v_prev_date is not null and (p_today - v_prev_date) = 1
+                    then greatest(1, v_prev_streak + 1)
+                  else 1
+                end;
+  end if;
+
+  update public.focus_stats
+     set today_focus_minutes = v_today_focus,
+         today_sessions = v_today_sessions,
+         streak = v_streak,
+         total_sessions = coalesce(total_sessions, 0) + 1,
+         last_focus_date = p_today,
+         updated_at = timezone('utc', now())
+   where user_id = p_user_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- PostgREST caches the schema, so a brand new function can 404 on /rpc/ until it reloads.
+notify pgrst, 'reload schema';

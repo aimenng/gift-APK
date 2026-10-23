@@ -115,6 +115,11 @@ app.use((error, _req, res, _next) => {
     message = '数据库缺少 focus_timer_state 表，请先执行 backend/supabase/migration_20260213_focus_timer_state.sql';
   }
 
+  if (typeof message === 'string' && message.includes('complete_focus_session')) {
+    message =
+      '数据库缺少 complete_focus_session 函数，请先执行 backend/supabase/migration_20261024_focus_session_atomic.sql';
+  }
+
   if (
     typeof message === 'string' &&
     message.includes("Could not find the 'token_version' column of 'users'")

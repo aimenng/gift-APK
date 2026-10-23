@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ChevronLeft,
@@ -179,6 +179,10 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Per-day sequence numbers so a slow response cannot overwrite a newer edit, plus an
+  // in-flight counter so the spinner only clears once every request has settled.
+  const saveSeqByDateRef = useRef(new Map<string, number>());
+  const inFlightSavesRef = useRef(0);
 
   const selectedDateKey = toDateKey(selectedDate);
   const ownSelected = ownData[selectedDateKey] || { isPeriod: false, mood: null, flow: null };
@@ -233,6 +237,12 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
 
   const persistOwnRecord = async (dateKey: string, next: DayRecord, previous: DayRecord | undefined) => {
     if (!currentUser?.id) return;
+
+    const seq = (saveSeqByDateRef.current.get(dateKey) || 0) + 1;
+    saveSeqByDateRef.current.set(dateKey, seq);
+    const isStale = () => saveSeqByDateRef.current.get(dateKey) !== seq;
+
+    inFlightSavesRef.current += 1;
     setSaving(true);
     setError('');
     try {
@@ -241,6 +251,9 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
         mood: next.mood,
         flow: next.flow,
       });
+      // Toggling mood quickly fires overlapping requests. Applying an older response
+      // would revert the record the user just made, so drop anything superseded.
+      if (isStale()) return;
       setOwnData((prev) => {
         const updated = { ...prev };
         if (!result.entry) {
@@ -261,6 +274,7 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
         entry: result.entry,
       });
     } catch (saveError: any) {
+      if (isStale()) return;
       setOwnData((prev) => {
         const rollback = { ...prev };
         if (previous) rollback[dateKey] = previous;
@@ -269,7 +283,11 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
       });
       setError(saveError?.message || '\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
     } finally {
-      setSaving(false);
+      inFlightSavesRef.current -= 1;
+      if (inFlightSavesRef.current <= 0) {
+        inFlightSavesRef.current = 0;
+        setSaving(false);
+      }
     }
   };
 

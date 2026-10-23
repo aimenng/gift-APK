@@ -102,13 +102,17 @@ export const getPartnerByUser = async (userRow) => {
 };
 
 export const ensureUserSettings = async (userId, isConnected = false) => {
-  const { data: existing, error: selectError } = await supabase
-    .from('user_settings')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
+  const readRow = async () => {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  };
 
-  if (selectError) throw selectError;
+  const existing = await readRow();
   if (existing) return existing;
 
   const { data: inserted, error: insertError } = await supabase
@@ -121,8 +125,17 @@ export const ensureUserSettings = async (userId, isConnected = false) => {
     .select('*')
     .single();
 
-  if (insertError) throw insertError;
-  return inserted;
+  if (!insertError) return inserted;
+
+  // Login, /auth/me and /app/state can all fire this concurrently, so another caller may
+  // have inserted between our read and our write. A plain upsert is not an option here —
+  // it would clobber the together_date the user already set. Read back the winner instead.
+  if (String(insertError.code || '') === '23505') {
+    const winner = await readRow();
+    if (winner) return winner;
+  }
+
+  throw insertError;
 };
 
 export const createUniqueInviteCode = async () => {

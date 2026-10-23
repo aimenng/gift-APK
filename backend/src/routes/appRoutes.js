@@ -172,17 +172,31 @@ const mapWithConcurrency = async (items, limit, worker) => {
 
   const results = new Array(items.length);
   let cursor = 0;
+  let aborted = false;
 
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (cursor < items.length) {
+      if (aborted) return;
       const index = cursor;
       cursor += 1;
-      // eslint-disable-next-line no-await-in-loop
-      results[index] = await worker(items[index], index);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        results[index] = await worker(items[index], index);
+      } catch (error) {
+        aborted = true;
+        throw error;
+      }
     }
   });
 
-  await Promise.all(runners);
+  // Promise.all would reject on the first failure while sibling runners are still
+  // mid-upload; the caller's cleanup would then run before they record their storage
+  // keys, leaving orphaned objects in the bucket forever. Stop handing out new work as
+  // soon as one fails, but wait for every runner to settle before throwing.
+  const settled = await Promise.allSettled(runners);
+  const failure = settled.find((result) => result.status === 'rejected');
+  if (failure) throw failure.reason;
+
   return results;
 };
 
@@ -323,7 +337,6 @@ const loadEventsByUsers = async (userIds) => {
 
 const PERIOD_FLOW_LEVELS = new Set(['light', 'medium', 'heavy']);
 const PERIOD_MOOD_CANONICAL = new Set(['开心', '幸福', '平静', '难过', '焦虑']);
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FOCUS_TIMER_MODES = new Set(['countdown', 'countup']);
 const FOCUS_TIMER_DEFAULT_INITIAL_SECONDS = 25 * 60;
 const FOCUS_TIMER_MIN_INITIAL_SECONDS = 60;
@@ -350,14 +363,6 @@ const toDateOnly = (value = new Date()) => {
   } catch {
     return safeDate.toISOString().slice(0, 10);
   }
-};
-
-const dateDiffInDays = (fromDate, toDate) => {
-  if (!fromDate || !toDate) return null;
-  const fromTs = Date.parse(`${fromDate}T00:00:00Z`);
-  const toTs = Date.parse(`${toDate}T00:00:00Z`);
-  if (!Number.isFinite(fromTs) || !Number.isFinite(toTs)) return null;
-  return Math.round((toTs - fromTs) / DAY_MS);
 };
 
 const normalizePeriodMood = (value) => {
@@ -1300,38 +1305,14 @@ router.patch(
     }
     const focusMinutes = focusMinutesRaw;
 
-    const row = await ensureFocusStatsRow(req.userId);
-    const today = toDateOnly();
-    const previousDate = row.last_focus_date || null;
-    const previousStreak = clampNonNegativeInt(row.streak);
-
-    let nextTodayFocus = focusMinutes;
-    let nextTodaySessions = 1;
-    let nextStreak = 1;
-
-    if (previousDate === today) {
-      nextTodayFocus = clampNonNegativeInt(row.today_focus_minutes) + focusMinutes;
-      nextTodaySessions = clampNonNegativeInt(row.today_sessions) + 1;
-      nextStreak = previousStreak > 0 ? previousStreak : 1;
-    } else {
-      const dayDiff = dateDiffInDays(previousDate, today);
-      nextStreak = dayDiff === 1 ? Math.max(1, previousStreak + 1) : 1;
-    }
-
-    const { data: updatedRow, error: updateError } = await supabase
-      .from('focus_stats')
-      .update({
-        today_focus_minutes: nextTodayFocus,
-        today_sessions: nextTodaySessions,
-        streak: nextStreak,
-        total_sessions: clampNonNegativeInt(row.total_sessions) + 1,
-        last_focus_date: today,
-        updated_at: nowIso(),
-      })
-      .eq('user_id', req.userId)
-      .select('*')
-      .single();
-    if (updateError) throw updateError;
+    // Read-modify-write in JS lost increments when two devices finished a session at the
+    // same time; the counters and streak are now computed inside one locked transaction.
+    const { data: updatedRow, error: rpcError } = await supabase.rpc('complete_focus_session', {
+      p_user_id: req.userId,
+      p_focus_minutes: focusMinutes,
+      p_today: toDateOnly(),
+    });
+    if (rpcError) throw rpcError;
 
     return res.json({ ok: true, stats: mapFocusStats(updatedRow) });
   })
