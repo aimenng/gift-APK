@@ -6,10 +6,10 @@ const INVITE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_RE = /^\d{6}$/;
 const INVITE_CODE_RE = /^GIFT-[A-Z0-9]{4}$/;
-const FIXED_INVITE_CODE_BY_EMAIL = Object.freeze({
-  '2305427577@qq.com': 'XHB-LLQ',
-  '1057289305@qq.com': 'LLQ-XHB',
-});
+// Reserved email -> invite-code pairs come from BACKEND_FIXED_INVITE_CODES so that they
+// are not committed to a public repository. Empty by default: every address then gets a
+// randomly generated GIFT-XXXX code.
+const FIXED_INVITE_CODE_BY_EMAIL = config.fixedInviteCodes;
 const SPECIAL_INVITE_CODES = new Set(Object.values(FIXED_INVITE_CODE_BY_EMAIL));
 
 export const buildHttpError = (status, message) => {
@@ -72,7 +72,6 @@ export const generateInviteCode = () => {
 
 // 100000..999999 inclusive; crypto.randomInt's upper bound is exclusive.
 export const generateVerificationCode = () => String(crypto.randomInt(100000, 1000000));
-export const createRandomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
 export const hashValue = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 export const nowIso = () => new Date().toISOString();
 export const addMinutesIso = (minutes) => new Date(Date.now() + minutes * 60 * 1000).toISOString();

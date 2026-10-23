@@ -9,7 +9,6 @@ import {
   assertDateString,
   assertInviteCode,
   buildHttpError,
-  createRandomToken,
   ensureUserSettings,
   getUserById,
   getUserByInviteCode,
@@ -548,35 +547,7 @@ const mapMemoryForResponse = async (row, authorRow = null) => {
 const mapMemoriesForResponse = async (rows, authorMap = null) =>
   mapWithConcurrency(rows || [], 6, async (row) => mapMemoryForResponse(row, authorMap?.get(row.user_id)));
 
-const htmlResponse = (title, message, buttonText = '打开应用') => `
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f8f8f6; color: #1f2937; margin: 0; padding: 24px; }
-      .card { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.08);}
-      h1 { margin: 0 0 12px; font-size: 24px; }
-      p { margin: 0 0 14px; line-height: 1.7; }
-      a { display: inline-block; padding: 10px 16px; border-radius: 8px; text-decoration: none; color: #fff; background: #64723f; font-weight: 600; }
-      .muted { color: #6b7280; font-size: 12px; margin-top: 12px; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>${title}</h1>
-      <p>${message}</p>
-      <a href="${config.frontendUrl}">${buttonText}</a>
-      <p class="muted">如果按钮未能拉起应用，请复制此链接：${config.frontendUrl}</p>
-    </div>
-  </body>
-</html>
-`;
-
 const createBindingRequest = async (requester, target, inviteCode) => {
-  const token = createRandomToken(32);
   const expiresAt = addHoursIso(config.bindingRequestTtlHours);
 
   const { data, error } = await supabase
@@ -585,7 +556,6 @@ const createBindingRequest = async (requester, target, inviteCode) => {
       requester_user_id: requester.id,
       target_user_id: target.id,
       invite_code: inviteCode,
-      confirm_token: token,
       status: 'pending',
       expires_at: expiresAt,
     })
@@ -914,58 +884,6 @@ router.post(
       message: '已同意绑定请求',
       settings: mapSettings(settings, target),
     });
-  })
-);
-
-router.get(
-  '/bindings/confirm',
-  withAsync(async (req, res) => {
-    const token = String(req.query?.token || '').trim();
-    if (!token) {
-      return res
-        .status(400)
-        .send(htmlResponse('确认失败', '缺少确认令牌，请重试。', '返回应用'));
-    }
-
-    const { data: bindRequest, error: requestError } = await supabase
-      .from('binding_requests')
-      .select('*')
-      .eq('confirm_token', token)
-      .eq('status', 'pending')
-      .maybeSingle();
-    if (requestError) throw requestError;
-    if (!bindRequest) {
-      return res
-        .status(404)
-        .send(htmlResponse('请求不存在', '该绑定请求不存在或已处理。'));
-    }
-
-    if (new Date(bindRequest.expires_at).getTime() < Date.now()) {
-      await supabase.from('binding_requests').update({ status: 'expired' }).eq('id', bindRequest.id);
-      return res
-        .status(400)
-        .send(htmlResponse('请求已过期', '确认链接已过期，请让对方重新发起请求。'));
-    }
-
-    try {
-      await applyBindingAcceptance(bindRequest);
-    } catch (error) {
-      if ((error?.status || 500) === 404) {
-        return res
-          .status(404)
-          .send(htmlResponse('用户不存在', '该绑定请求中的一方账号已不存在。'));
-      }
-      if ((error?.status || 500) === 409) {
-        return res
-          .status(409)
-          .send(htmlResponse('无法绑定', '至少有一个账号已绑定。'));
-      }
-      throw error;
-    }
-
-    return res
-      .status(200)
-      .send(htmlResponse('绑定成功', '你已成功确认绑定。'));
   })
 );
 

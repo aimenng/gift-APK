@@ -179,6 +179,21 @@ cp backend/.env.example backend/.env
 - Backend：`8787`
 - Frontend：`5173`
 
+可选：为特定邮箱保留固定邀请码。
+
+```env
+# backend/.env（已被 gitignore，不会进仓库）
+BACKEND_FIXED_INVITE_CODES=某人@example.com:ABC-DEF,另一人@example.com:GHI-JKL
+```
+
+留空则所有账号一律随机生成 `GIFT-XXXX`。这份映射以前是硬编码在 `helpers.js` 里的，
+公开仓库等于把真实邮箱和邀请码一起公布，所以移到了环境变量。
+数据库侧的格式约束需要执行 `migration_20261024_invite_code_constraint_from_env.sql`
+放开（旧约束把两个具体邮箱写死在了 CHECK 里）。
+
+> 注意：这两个邮箱和邀请码仍然存在于 **git 历史**中，改代码不能抹掉已推送的提交。
+> 如果介意，唯一的办法是在应用里重新生成邀请码。
+
 ### 3) 配置前端环境变量
 
 本地开发建议：
@@ -210,6 +225,11 @@ VITE_API_BASE_URL_MOBILE=https://你的后端域名/api
 
 > `.env.production` 会进仓库，只放公开域名，绝对不要放任何密钥
 > （尤其是 `SUPABASE_SERVICE_ROLE_KEY`，它只能待在 `backend/.env`）。
+
+「我的」页里的反馈邮箱从 `VITE_DEVELOPER_EMAIL` 读取。注意 **`VITE_` 开头的变量会被
+打进客户端产物**，所以这个邮箱要配在 Vercel 项目的环境变量里，或放在
+`.env.production.local`（已被 gitignore），不要写进任何会提交的文件。
+未配置时反馈入口会显示「未配置」并提示走仓库 issue，不会露出空地址。
 
 ### 4) 一键启动前后端
 

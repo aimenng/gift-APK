@@ -110,7 +110,6 @@ create table if not exists public.binding_requests (
   requester_user_id uuid not null references public.users(id) on delete cascade,
   target_user_id uuid not null references public.users(id) on delete cascade,
   invite_code text not null,
-  confirm_token text not null unique,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected', 'expired', 'cancelled')),
   expires_at timestamptz not null,
   confirmed_at timestamptz null,
@@ -125,6 +124,14 @@ alter table public.users add column if not exists token_version integer not null
 update public.users set token_version = 0 where token_version is null;
 alter table public.users drop constraint if exists users_token_version_non_negative;
 alter table public.users add constraint users_token_version_non_negative check (token_version >= 0);
+
+-- Loose shape check only. The real policy (GIFT-XXXX plus any reserved codes configured
+-- via BACKEND_FIXED_INVITE_CODES) is enforced by assertInviteCode in the backend. Kept in
+-- sync with migration_20261024_invite_code_constraint_from_env.sql so a fresh install
+-- behaves like a migrated one.
+alter table public.users drop constraint if exists users_invitation_code_format_check;
+alter table public.users add constraint users_invitation_code_format_check
+  check (invitation_code is null or invitation_code ~ '^[A-Z0-9-]{4,16}$');
 
 create unique index if not exists idx_users_invitation_code_unique on public.users (invitation_code) where invitation_code is not null;
 create index if not exists idx_users_partner_id on public.users (partner_id);

@@ -29,7 +29,9 @@ import { PixelAvatarShowcase } from '../components/PixelAvatar';
 import { AnimatedAvatarShowcase } from '../components/AnimatedAvatar';
 import { copyText } from '../utils/clipboard';
 
-const DEVELOPER_EMAIL = '2305427577@qq.com';
+// Set VITE_DEVELOPER_EMAIL in the Vercel dashboard or .env.production.local. VITE_* values
+// end up in the client bundle, so committing the address would publish it again.
+const DEVELOPER_EMAIL = import.meta.env.VITE_DEVELOPER_EMAIL || '';
 
 interface ProfilePageProps {
   onNavigateToAuth: () => void;
@@ -252,6 +254,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const handleSendFeedback = () => {
     if (!feedbackText.trim()) {
       showToast('请输入反馈内容', 'error');
+      return;
+    }
+    if (!DEVELOPER_EMAIL) {
+      showToast('未配置反馈邮箱，请到项目仓库提 issue', 'error');
       return;
     }
     const subject = encodeURIComponent('【Gifts应用反馈】来自用户');
@@ -741,17 +747,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-[var(--eye-text-secondary)]">开发者邮箱</p>
-                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">{DEVELOPER_EMAIL}</p>
+                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">
+                  {DEVELOPER_EMAIL || '未配置'}
+                </p>
               </div>
-              <button
-                onClick={async () => {
-                  const copied = await copyText(DEVELOPER_EMAIL);
-                  showToast(copied ? '邮箱已复制' : '复制失败，请手动记录邮箱', copied ? 'success' : 'error');
-                }}
-                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0"
-              >
-                <Copy className="w-4 h-4 text-[var(--eye-text-secondary)]" />
-              </button>
+              {DEVELOPER_EMAIL && (
+                <button
+                  onClick={async () => {
+                    const copied = await copyText(DEVELOPER_EMAIL);
+                    showToast(copied ? '邮箱已复制' : '复制失败，请手动记录邮箱', copied ? 'success' : 'error');
+                  }}
+                  className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0"
+                >
+                  <Copy className="w-4 h-4 text-[var(--eye-text-secondary)]" />
+                </button>
+              )}
             </div>
 
             {/* Feedback textarea */}
@@ -773,12 +783,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </button>
 
             {/* Direct mailto link */}
-            <a
-              href="mailto:2305427577@qq.com?subject=%E3%80%90Gifts%E5%BA%94%E7%94%A8%E5%8F%8D%E9%A6%88%E3%80%91"
-              className="block text-center text-xs text-violet-500 mt-3 hover:underline"
-            >
-              或直接打开邮箱客户端发送
-            </a>
+            {DEVELOPER_EMAIL && (
+              <a
+                href={`mailto:${DEVELOPER_EMAIL}?subject=${encodeURIComponent('【Gifts应用反馈】')}`}
+                className="block text-center text-xs text-violet-500 mt-3 hover:underline"
+              >
+                或直接打开邮箱客户端发送
+              </a>
+            )}
           </div>
         </div>
       )}

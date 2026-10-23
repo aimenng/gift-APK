@@ -95,36 +95,3 @@ export const sendPasswordResetCodeEmail = async (toEmail, code) => {
     html,
   });
 };
-
-export const sendBindingConfirmEmail = async ({
-  toEmail,
-  requesterName,
-  requesterEmail,
-  inviteCode,
-  confirmUrl,
-}) => {
-  const ttlHours = config.bindingRequestTtlHours;
-  const subject = '【Gifts】关系绑定确认请求';
-  const text = `${requesterName} (${requesterEmail}) 希望绑定你的邀请码 ${inviteCode}。请在 ${ttlHours} 小时内打开此链接确认：${confirmUrl}`;
-  const html = `
-    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.7;color:#1f2937;">
-      <h2 style="margin:0 0 12px;">Gifts 关系绑定确认</h2>
-      <p><strong>${requesterName}</strong>（${requesterEmail}）正在请求绑定你的邀请码：</p>
-      <p style="font-size:20px;font-weight:700;letter-spacing:2px;margin:10px 0;color:#64723f;">${inviteCode}</p>
-      <p>请在 ${ttlHours} 小时内点击下面按钮确认：</p>
-      <p style="margin:18px 0;">
-        <a href="${confirmUrl}" style="display:inline-block;padding:10px 18px;background:#64723f;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;">
-          同意绑定
-        </a>
-      </p>
-      <p style="font-size:12px;color:#6b7280;">如果不是你本人操作，请忽略这封邮件。</p>
-    </div>
-  `;
-
-  await sendMail({
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
-};

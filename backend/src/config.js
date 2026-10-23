@@ -27,6 +27,22 @@ const parseBoolean = (value, fallback = false) => {
 
 const runtimeVercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
 
+// Parsed from BACKEND_FIXED_INVITE_CODES="email:CODE,email:CODE". Kept out of source so a
+// public clone does not reveal which addresses map to which reserved invite codes.
+const parseFixedInviteCodes = (value) => {
+  const map = {};
+  for (const pair of String(value || '').split(',')) {
+    const trimmed = pair.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.lastIndexOf(':');
+    if (separator <= 0 || separator === trimmed.length - 1) continue;
+    const email = trimmed.slice(0, separator).trim().toLowerCase();
+    const code = trimmed.slice(separator + 1).trim().toUpperCase();
+    if (email && code) map[email] = code;
+  }
+  return Object.freeze(map);
+};
+
 export const config = {
   port: parseNumber(process.env.PORT, 8787),
   corsOrigin: process.env.CORS_ORIGIN || (runtimeVercelUrl ? '*' : 'http://localhost:5173,http://localhost:3000'),
@@ -42,14 +58,13 @@ export const config = {
   // The frontend renders dates in the device's local zone, so pin the server to the
   // app's audience zone instead of the host's (Vercel runs UTC).
   appTimezone: String(process.env.APP_TIMEZONE || 'Asia/Shanghai').trim() || 'Asia/Shanghai',
+  fixedInviteCodes: parseFixedInviteCodes(process.env.BACKEND_FIXED_INVITE_CODES),
   bodyLimit: process.env.BODY_LIMIT || '12mb',
   maxImageBytes: parseBoundedInt(process.env.MAX_IMAGE_BYTES, 10 * 1024 * 1024, 256 * 1024, 50 * 1024 * 1024),
   maxAvatarLength: parseBoundedInt(process.env.MAX_AVATAR_LENGTH, 240_000, 8_000, 2_000_000),
   memoryPageDefaultLimit: parseBoundedInt(process.env.MEMORIES_PAGE_DEFAULT_LIMIT, 50, 1, 200),
   memoryPageMaxLimit: parseBoundedInt(process.env.MEMORIES_PAGE_MAX_LIMIT, 100, 10, 500),
   frontendUrl: process.env.FRONTEND_URL || runtimeVercelUrl || 'http://localhost:5173',
-  backendPublicUrl:
-    process.env.BACKEND_PUBLIC_URL || runtimeVercelUrl || `http://localhost:${parseNumber(process.env.PORT, 8787)}`,
   verificationCodeTtlMinutes: parseNumber(process.env.VERIFICATION_CODE_TTL_MINUTES, 10),
   verificationMaxAttempts: parseBoundedInt(process.env.VERIFICATION_MAX_ATTEMPTS, 5, 1, 20),
   authUniformMinLatencyMs: parseBoundedInt(process.env.AUTH_UNIFORM_MIN_LATENCY_MS, 650, 200, 5000),
