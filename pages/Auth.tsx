@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -91,6 +91,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     return () => window.clearTimeout(timer);
   }, [submitting]);
 
+  const navigateTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (navigateTimerRef.current != null) window.clearTimeout(navigateTimerRef.current);
+    },
+    []
+  );
+
+  // Both success paths delay navigation so the confirmation message stays visible. The
+  // timer must be cancellable, or it fires after unmount and navigates anyway.
+  const scheduleNavigateBack = () => {
+    if (navigateTimerRef.current != null) window.clearTimeout(navigateTimerRef.current);
+    navigateTimerRef.current = window.setTimeout(() => {
+      navigateTimerRef.current = null;
+      onBack();
+    }, 400);
+  };
+
   const resetForm = () => {
     setEmail('');
     setPassword('');
@@ -129,7 +148,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       }
       setSuccess('登录成功，正在同步数据...');
       setSwitchingAccount(false);
-      setTimeout(() => onBack(), 400);
+      scheduleNavigateBack();
     } finally {
       setSubmitting(false);
     }
@@ -193,7 +212,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       }
       setSuccess('注册完成，已自动登录');
       setSwitchingAccount(false);
-      setTimeout(() => onBack(), 400);
+      scheduleNavigateBack();
     } finally {
       setSubmitting(false);
     }
@@ -470,10 +489,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       <div className="flex items-center gap-4 py-4 mb-4">
         <button
           onClick={() => {
-            if (switchingAccount) {
+            // setSwitchingAccount(false) does not change the value read on the next line,
+            // so the previous `showForm && !switchingAccount` test always fell through to
+            // onBack() and threw the user out of the page instead of back to the account
+            // screen. Branch on the current values instead.
+            if (switchingAccount || showForm) {
               setSwitchingAccount(false);
-            }
-            if (showForm && !switchingAccount) {
               setShowForm(false);
               resetForm();
               return;

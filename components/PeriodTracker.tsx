@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../authContext';
 import { apiPatch } from '../utils/apiClient';
+import { getNow } from '../utils/timeService';
 import {
   fetchPeriodTrackerEntries,
   getCachedPeriodTrackerEntries,
@@ -97,7 +98,9 @@ const toDateKey = (date: Date) => {
 };
 
 const isFutureDate = (date: Date) => {
-  const today = new Date();
+  // Use the network-calibrated clock so this agrees with the anniversary pages, which
+  // already compare against getNow() rather than the possibly-skewed device clock.
+  const today = getNow().toDate();
   today.setHours(0, 0, 0, 0);
   const target = new Date(date);
   target.setHours(0, 0, 0, 0);

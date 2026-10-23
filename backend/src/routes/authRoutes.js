@@ -96,6 +96,20 @@ const fireAndForget = (task, label) => {
   }
 };
 
+// Failing to deliver the code is a server-side condition that is identical for every
+// address, so surfacing it does not reveal whether the email is registered. Swallowing the
+// error used to return ok:true while the user waited forever for a code that was never sent.
+const failOnCodeDeliveryError = (label, error) => {
+  console.error(label, error?.message || error);
+  const notConfigured = String(error?.message || '').includes('SMTP is not configured');
+  throw buildHttpError(
+    503,
+    notConfigured
+      ? '邮件服务未配置，验证码无法发送，请检查后端 SMTP 设置'
+      : '验证码发送失败，请稍后重试'
+  );
+};
+
 const cleanupStoredAvatars = async (keys, label) => {
   const validKeys = (Array.isArray(keys) ? keys : []).filter(Boolean);
   if (validKeys.length === 0) return;
@@ -250,7 +264,7 @@ router.post(
       try {
         await sendSignupCodeEmail(email, code);
       } catch (error) {
-        console.error('[send-signup-code]', error?.message || error);
+        failOnCodeDeliveryError('[send-signup-code]', error);
       }
     }
 
@@ -421,7 +435,7 @@ router.post(
       try {
         await sendPasswordResetCodeEmail(email, code);
       } catch (error) {
-        console.error('[send-reset-password-code]', error?.message || error);
+        failOnCodeDeliveryError('[send-reset-password-code]', error);
       }
     }
 

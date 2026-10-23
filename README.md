@@ -265,6 +265,14 @@ npm run dev:full
 | `npm run check:text-encoding` | 检查文本编码与乱码 |
 | `npm run check:native-env` | 校验原生构建用的接口地址是否真机可达 |
 | `npm run test:unit` | 跑单元测试（需 Node ≥ 22.6，用到 Node 内置的 TS 类型擦除） |
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在每次 push 到 `main` 和每个 Pull Request 上跑同一套门禁：
+strict 类型检查、后端全部 js 的语法检查、单元测试、文本编码检查、生产构建，
+外加两条专项断言——构建产物不得再引用任何运行时 CDN（Tailwind/字体/esm.sh），
+以及 `check:native-env` 在缺配置时必须失败、在配置正确时必须通过。
+本地想提前自查，按同样顺序跑上面这几条命令即可。
 | `npm run build:mobile` | 构建 Web 并同步到 Android 工程（会先跑 `check:native-env`） |
 | `npm run android:sync` | 仅同步 Capacitor 到 Android |
 | `npm run android:open` | 用 Android Studio 打开工程 |

@@ -642,13 +642,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         inviteCode,
       });
 
-      if (response.settings) {
+      // Captured in a local so the null check still narrows inside the updater closure.
+      const settings = response.settings;
+      if (settings) {
         setConnectionState((prev) => ({
           ...prev,
-          isConnected: Boolean(response.settings.isConnected),
-          inviteCode: response.settings.inviteCode || prev.inviteCode,
-          boundInviteCode: response.settings.boundInviteCode || prev.boundInviteCode,
-          togetherDate: response.settings.togetherDate || prev.togetherDate,
+          isConnected: Boolean(settings.isConnected),
+          inviteCode: settings.inviteCode || prev.inviteCode,
+          boundInviteCode: settings.boundInviteCode || prev.boundInviteCode,
+          togetherDate: settings.togetherDate || prev.togetherDate,
         }));
       }
 
@@ -719,13 +721,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         settings?: AppStateResponse['settings'];
       }>(`/bindings/${requestId}/respond`, { action });
 
-      if (response.settings) {
+      // Captured in a local so the null check still narrows inside the updater closure.
+      const settings = response.settings;
+      if (settings) {
         setConnectionState((prev) => ({
           ...prev,
-          isConnected: Boolean(response.settings.isConnected),
-          inviteCode: response.settings.inviteCode || prev.inviteCode,
-          boundInviteCode: response.settings.boundInviteCode || prev.boundInviteCode,
-          togetherDate: response.settings.togetherDate || prev.togetherDate,
+          isConnected: Boolean(settings.isConnected),
+          inviteCode: settings.inviteCode || prev.inviteCode,
+          boundInviteCode: settings.boundInviteCode || prev.boundInviteCode,
+          togetherDate: settings.togetherDate || prev.togetherDate,
         }));
       }
 
