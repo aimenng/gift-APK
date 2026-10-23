@@ -4,6 +4,8 @@ const MAX_MINUTES_PER_SESSION = 240;
 
 export interface PendingFocusSession {
   id: string;
+  /** Owner of the session. Empty only for entries written before this field existed. */
+  userId: string;
   focusMinutes: number;
   at: number;
 }
@@ -24,6 +26,7 @@ const readQueue = (): PendingFocusSession[] => {
     return parsed
       .map((item, index) => ({
         id: typeof item?.id === 'string' && item.id ? item.id : `legacy-${index}`,
+        userId: typeof item?.userId === 'string' ? item.userId : '',
         focusMinutes: clampMinutes(item?.focusMinutes),
         at: Number.isFinite(Number(item?.at)) ? Number(item.at) : Date.now(),
       }))
@@ -56,39 +59,60 @@ const nextId = (): string => {
  * Remembers a finished session whose upload failed, so the minutes are not lost.
  * Reporting is at-least-once: a request that reached the server but whose response was
  * lost will be counted twice, which is preferable to dropping the session entirely.
+ *
+ * The owner is recorded because the queue lives in localStorage, which is shared by every
+ * account that signs in on this device. Without it, whoever logs in next would upload the
+ * previous user's minutes into their own statistics.
  */
-export const queueFocusSession = (focusMinutes: number): void => {
+export const queueFocusSession = (userId: string | null | undefined, focusMinutes: number): void => {
   const minutes = clampMinutes(focusMinutes);
+  const owner = String(userId || '').trim();
   if (minutes < 1) return;
+  if (!owner) {
+    // Nothing to attribute it to; uploading later would credit the wrong account.
+    console.warn('Skipped queueing a focus session without a user id');
+    return;
+  }
 
   const queue = readQueue();
-  queue.push({ id: nextId(), focusMinutes: minutes, at: Date.now() });
+  queue.push({ id: nextId(), userId: owner, focusMinutes: minutes, at: Date.now() });
   writeQueue(queue);
 };
 
 export const pendingFocusSessionCount = (): number => readQueue().length;
 
 /**
- * Uploads queued sessions oldest-first, persisting the remainder after each success.
+ * Uploads this user's queued sessions, oldest first, removing each one only after it
+ * succeeds. Entries belonging to other accounts are left untouched in the queue.
  * Stops at the first failure so a flaky network does not turn into a retry storm.
- * Removal is positional rather than by id, so duplicate or regenerated ids can never
- * cause a successful upload to drop other queued sessions.
  * Returns how many sessions were uploaded.
+ *
+ * Entries from before the owner was recorded cannot be attributed to anybody. They are
+ * never uploaded and simply age out as newer sessions push them past MAX_QUEUED.
  */
 export const flushPendingFocusSessions = async (
+  userId: string | null | undefined,
   complete: (focusMinutes: number) => Promise<void>
 ): Promise<number> => {
-  const queue = readQueue();
+  const owner = String(userId || '').trim();
+  if (!owner) return 0;
+
+  let queue = readQueue();
   let flushed = 0;
 
-  while (flushed < queue.length) {
+  for (;;) {
+    const index = queue.findIndex((item) => item.userId === owner);
+    if (index === -1) break;
+
     try {
-      await complete(queue[flushed].focusMinutes);
+      await complete(queue[index].focusMinutes);
     } catch {
       break;
     }
+
     flushed += 1;
-    writeQueue(queue.slice(flushed));
+    queue = [...queue.slice(0, index), ...queue.slice(index + 1)];
+    writeQueue(queue);
   }
 
   return flushed;

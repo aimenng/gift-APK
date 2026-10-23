@@ -9,15 +9,25 @@ const buildError = (message) => {
   return error;
 };
 
-const getTransporter = () => {
-  if (transporter) return transporter;
-
-  const { host, port, secure, user, pass } = config.smtp;
-  if (!host || !user || !pass || !config.smtp.from) {
+/**
+ * Whether this deployment is able to send mail at all. Deliberately depends only on
+ * configuration, never on the recipient, so callers can surface "mail is down" to every
+ * request without revealing anything about the address being probed.
+ */
+export const assertMailerReady = () => {
+  const { host, user, pass, from } = config.smtp;
+  if (!host || !user || !pass || !from) {
     throw buildError(
       'SMTP is not configured. Please set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and SMTP_FROM.'
     );
   }
+};
+
+const getTransporter = () => {
+  if (transporter) return transporter;
+
+  assertMailerReady();
+  const { host, port, secure, user, pass } = config.smtp;
 
   // In serverless environments (Vercel), avoid pooled connections —
   // each invocation may be a fresh container, so pool keep-alive adds overhead.

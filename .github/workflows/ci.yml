@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # test:unit imports a .ts file directly and relies on Node's type stripping.
+      # The tests import .ts files directly and rely on Node's type stripping.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -39,7 +39,7 @@ jobs:
           exit "$fail"
 
       - name: Unit tests
-        run: npm run test:unit
+        run: npm test
 
       - name: Text encoding check
         run: npm run check:text-encoding
