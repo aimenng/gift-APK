@@ -120,6 +120,11 @@ app.use((error, _req, res, _next) => {
       '数据库缺少 complete_focus_session 函数，请先执行 backend/supabase/migration_20261024_focus_session_atomic.sql';
   }
 
+  if (typeof message === 'string' && message.includes('consume_verification_attempt')) {
+    message =
+      '数据库缺少 consume_verification_attempt 函数，请先执行 backend/supabase/migration_20261024_atomic_verification_attempts.sql';
+  }
+
   if (
     typeof message === 'string' &&
     message.includes("Could not find the 'token_version' column of 'users'")
@@ -170,6 +175,11 @@ app.use((error, _req, res, _next) => {
 
   if (status >= 500) {
     console.error('[Backend Error]', error);
+    // None of the known-issue rewrites matched, so `message` is still raw driver text that
+    // can leak table and column names. It is logged above; the client gets a generic one.
+    if (message === rawMessage) {
+      message = '服务器内部错误，请稍后重试';
+    }
   }
 
   res.status(status).json({ error: message });

@@ -65,13 +65,13 @@ export const assertDateString = (dateString, fieldName = 'date') => {
 export const generateInviteCode = () => {
   let code = '';
   for (let i = 0; i < 4; i += 1) {
-    const index = Math.floor(Math.random() * INVITE_CHARS.length);
-    code += INVITE_CHARS[index];
+    code += INVITE_CHARS[crypto.randomInt(INVITE_CHARS.length)];
   }
   return `GIFT-${code}`;
 };
 
-export const generateVerificationCode = () => String(Math.floor(100000 + Math.random() * 900000));
+// 100000..999999 inclusive; crypto.randomInt's upper bound is exclusive.
+export const generateVerificationCode = () => String(crypto.randomInt(100000, 1000000));
 export const createRandomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
 export const hashValue = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 export const nowIso = () => new Date().toISOString();

@@ -328,6 +328,43 @@ cd android
 2. 确认前端实际访问的是 `http://localhost:5173`。
 3. 如果改过端口，需同时改前端代理和后端 `PORT`。
 
+## 已知限制
+
+### 按 IP 的限流在 Serverless 上不生效
+
+`backend/src/app.js` 用 `express-rate-limit` 做的限流（`/api` 100 次/分、`/api/auth` 30 次/分、
+登录与验证码等敏感接口 5 次/分）计数存在 **Node 进程内存**里。部署到 Vercel 后每个
+lambda 实例各有一份计数，实例还会随时冷启动，所以这些限制在生产环境基本形同虚设。
+`appRoutes.js` 里的 POST 去重同理。
+
+真正拦得住的是**验证码尝试次数**：它记在数据库 `email_verifications.attempts` 上，
+并通过 `consume_verification_attempt` 这个 Postgres 函数在单条 UPDATE 里原子自增，
+所以并发请求会被行锁串行化，5 次上限是硬上限（修复前 50 个并发请求能全部通过校验）。
+
+如果以后要对外发布、需要真正按 IP 限流，有两个方向：
+
+- 接一个跨实例共享的存储（如 Upstash Redis），`express-rate-limit` 有现成 store 适配；
+- 或把敏感接口的计数也搬到数据库（和验证码尝试次数一样的做法），代价是每次请求多一次往返。
+
+### 字体依赖 Google Fonts CDN
+
+`index.html` 仍从 `fonts.googleapis.com` 加载 Plus Jakarta Sans / Caveat / Noto Sans SC。
+国内网络受阻时会退回 `index.css` 里声明的 PingFang SC / Microsoft YaHei 系统字体，
+功能不受影响，但手写体等设计感会丢失。彻底解决需要自托管字体。
+
+### 一批 Tailwind 类名从未生效
+
+Tailwind v3 默认标度里不存在这些值，所以它们一直没有产出任何 CSS：
+
+- `bg-[var(--eye-*)]/NN` 形式（如 `bg-[var(--eye-bg-primary)]/85`）—— Tailwind 无法为
+  未知的 CSS 变量颜色算出 alpha 通道，所以底部导航、启动屏、弹窗遮罩等元素实际是全透明的。
+  正确修法是把 `--eye-*` 改成裸 RGB 通道并配 `<alpha-value>` 注册进 `tailwind.config.js`。
+- `w-4.5` / `h-4.5`（Toast、Auth 的图标，实际按 lucide 默认 24px 渲染）、`h-13`、
+  `border-3`、`bg-primary/8`、`bg-rose-400/8`。
+- `scrollbar-thin` / `scrollbar-thumb-gray-200` 需要未安装的 `tailwind-scrollbar` 插件。
+
+修好它们会改变现有视觉（图标变小、遮罩出现），所以暂未处理。
+
 ## 仓库结构（简要）
 
 ```text

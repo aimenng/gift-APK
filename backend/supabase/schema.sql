@@ -232,3 +232,17 @@ $$;
 
 -- PostgREST caches the schema, so a brand new function can 404 on /rpc/ until it reloads.
 notify pgrst, 'reload schema';
+
+-- Atomic verification attempt counting. See
+-- migration_20261024_atomic_verification_attempts.sql for why this has to be one UPDATE.
+create or replace function public.consume_verification_attempt(p_id uuid)
+returns integer
+language sql
+set search_path = public
+as $$
+  update public.email_verifications
+     set attempts = coalesce(attempts, 0) + 1,
+         updated_at = timezone('utc', now())
+   where id = p_id
+  returning attempts;
+$$;

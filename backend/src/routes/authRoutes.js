@@ -66,6 +66,26 @@ const respondAfterUniformLatency = async (res, startedAt, payload, status = 200)
   return res.status(status).json(payload);
 };
 
+/**
+ * Burns one verification attempt and reports whether the caller may still guess the code.
+ *
+ * The increment happens inside a single UPDATE so Postgres serializes concurrent callers.
+ * The previous read-check-then-write let N parallel requests all see the same pre-increment
+ * count and each take a free guess, multiplying the attempt cap by the attacker's
+ * concurrency. Returns false whenever the outcome is ambiguous — a missing row means there
+ * is nothing left to verify, and denying is the safe direction.
+ */
+const consumeVerificationAttempt = async (verificationId) => {
+  const { data, error } = await supabase.rpc('consume_verification_attempt', {
+    p_id: verificationId,
+  });
+  if (error) throw error;
+
+  const attempts = Number.parseInt(String(data ?? ''), 10);
+  if (!Number.isFinite(attempts)) return false;
+  return attempts <= MAX_VERIFY_ATTEMPTS;
+};
+
 const fireAndForget = (task, label) => {
   try {
     Promise.resolve(task).catch((error) => {
@@ -266,16 +286,12 @@ router.post(
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
-    if ((verifyRow.attempts || 0) >= MAX_VERIFY_ATTEMPTS) {
+    if (!(await consumeVerificationAttempt(verifyRow.id))) {
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
     const isValid = hashValue(code) === verifyRow.code_hash;
     if (!isValid) {
-      await supabase
-        .from('email_verifications')
-        .update({ attempts: (verifyRow.attempts || 0) + 1 })
-        .eq('id', verifyRow.id);
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
@@ -297,6 +313,11 @@ router.post(
 
     if (existedUser) {
       const invitationCode = existedUser.invitation_code || (await getInviteCodeForEmail(email));
+      // Overwriting password_hash without bumping token_version is safe only because this
+      // branch is reachable solely for users with email_verified = false (verified users
+      // return above), and /login refuses to issue a JWT to them — so no live token exists
+      // to revoke. If login ever stops checking email_verified, this needs a token_version
+      // bump like password/reset does.
       const { data, error } = await supabase
         .from('users')
         .update({
@@ -443,16 +464,12 @@ router.post(
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
-    if ((verifyRow.attempts || 0) >= MAX_VERIFY_ATTEMPTS) {
+    if (!(await consumeVerificationAttempt(verifyRow.id))) {
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
     const isValid = hashValue(code) === verifyRow.code_hash;
     if (!isValid) {
-      await supabase
-        .from('email_verifications')
-        .update({ attempts: (verifyRow.attempts || 0) + 1 })
-        .eq('id', verifyRow.id);
       await failAfterUniformLatency(startedAt, 400, VERIFY_CODE_FAILED_MESSAGE);
     }
 
