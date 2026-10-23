@@ -1,10 +1,11 @@
 import { Settings, Plus, Calendar, Edit2, Trash2, AlertCircle, Leaf, Clock, Wifi, WifiOff } from 'lucide-react';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useApp, calculateRelativeDays, calculateNextOccurrence } from '../context';
+import { useApp, calculateRelativeDays, calculateNextOccurrence, dedupeRecentDuplicateEvents } from '../context';
 import { useAuth } from '../authContext';
 import { Modal } from '../components/Modal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PublisherBadge } from '../components/PublisherBadge';
+import { useToast } from '../components/Toast';
 import { EventType, AnniversaryEvent } from '../types';
 import { getDateValidationError, getMinDate, getMaxDate } from '../utils/dateValidation';
 import { EVENT_TYPE_Config, DEFAULT_CONFIG } from '../components/anniversary/constants';
@@ -21,6 +22,7 @@ const getEventConfig = (type: string) => {
 export const AnniversaryPage: React.FC = () => {
   const { events, addEvent, updateEvent, deleteEvent } = useApp();
   const { currentUser, partner } = useAuth();
+  const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<string | null>(null);
 
@@ -127,6 +129,10 @@ export const AnniversaryPage: React.FC = () => {
     } catch (error) {
       recentSubmitRef.current = { signature: '', at: 0 };
       console.error('Failed to save event:', error);
+      showToast(
+        error instanceof Error && error.message ? error.message : '保存失败，请稍后重试',
+        'error'
+      );
     } finally {
       submitLockRef.current = false;
       setIsSavingEvent(false);
@@ -152,56 +158,21 @@ export const AnniversaryPage: React.FC = () => {
     setDeletingEventId(eventId);
     try {
       await deleteEvent(eventId);
+      setPendingDeleteEventId(null);
     } catch (error) {
       console.error('Failed to delete event:', error);
+      showToast(
+        error instanceof Error && error.message ? error.message : '删除失败，请稍后重试',
+        'error'
+      );
     } finally {
       setDeletingEventId(null);
-      setPendingDeleteEventId(null);
     }
   };
 
   // Memoize sorted events
   const sortedEvents = useMemo(() => {
-    const byCreateDesc = [...events].sort((a, b) => {
-      const aCreated = Date.parse(a.createdAt || '');
-      const bCreated = Date.parse(b.createdAt || '');
-      if (!Number.isNaN(aCreated) && !Number.isNaN(bCreated)) {
-        return bCreated - aCreated;
-      }
-      return String(b.id).localeCompare(String(a.id));
-    });
-
-    const dedupeWindowMs = 30_000;
-    const lastCreatedAtByFingerprint = new Map<string, number>();
-    const deduped: AnniversaryEvent[] = [];
-
-    for (const event of byCreateDesc) {
-      const fingerprint = [
-        event.userId || '',
-        event.type || '',
-        event.title || '',
-        event.subtitle || '',
-        event.date || '',
-        event.image || '',
-      ].join('|');
-
-      const createdAtTs = Date.parse(event.createdAt || '');
-      const lastTs = lastCreatedAtByFingerprint.get(fingerprint);
-      const shouldCollapse =
-        lastTs != null &&
-        (!Number.isNaN(createdAtTs) ? Math.abs(lastTs - createdAtTs) <= dedupeWindowMs : true);
-
-      if (shouldCollapse) continue;
-
-      deduped.push(event);
-      if (!Number.isNaN(createdAtTs)) {
-        lastCreatedAtByFingerprint.set(fingerprint, createdAtTs);
-      } else if (!lastCreatedAtByFingerprint.has(fingerprint)) {
-        lastCreatedAtByFingerprint.set(fingerprint, 0);
-      }
-    }
-
-    return deduped.sort((a, b) => {
+    return dedupeRecentDuplicateEvents(events).sort((a, b) => {
       const nextA = calculateNextOccurrence(a.date);
       const nextB = calculateNextOccurrence(b.date);
       return nextA - nextB;

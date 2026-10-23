@@ -248,6 +248,10 @@ router.post(
     const startedAt = Date.now();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const code = String(req.body?.code || '').trim();
+    // Optional so older clients keep working; null means "leave the stored value alone"
+    // rather than silently resetting someone to the schema default.
+    const genderRaw = req.body?.gender;
+    const gender = genderRaw === 'male' || genderRaw === 'female' ? genderRaw : null;
 
     assertEmail(email);
     assertVerificationCode(code);
@@ -300,6 +304,7 @@ router.post(
           email_verified: true,
           invitation_code: invitationCode,
           name: existedUser.name || email.split('@')[0],
+          ...(gender ? { gender } : {}),
         })
         .eq('id', existedUser.id)
         .select('*')
@@ -317,7 +322,7 @@ router.post(
           bound_invitation_code: null,
           email_verified: true,
           name: email.split('@')[0],
-          gender: 'male',
+          gender: gender || 'male',
         })
         .select('*')
         .single();

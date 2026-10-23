@@ -81,9 +81,31 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
 });
 
+// PostgREST/Postgres errors carry a `code` but no HTTP status, so without this map they
+// all fall through to a misleading 500.
+const HTTP_STATUS_BY_DB_CODE = {
+  PGRST116: 404, // .single() matched no row — the record is gone or belongs to someone else
+  PGRST102: 404,
+  23505: 409, // unique violation
+  23503: 409, // foreign key violation
+  23502: 400, // not-null violation
+  22001: 400, // value too long for column
+};
+
+const DB_CODE_MESSAGES = {
+  PGRST116: '记录不存在或无权访问',
+  23505: '内容重复，请稍后重试',
+  23503: '关联数据不存在，请刷新后重试',
+  23502: '缺少必填内容',
+  22001: '内容过长，请精简后重试',
+};
+
 app.use((error, _req, res, _next) => {
-  const status = error.status || 500;
-  let message = error.message || 'Internal server error';
+  const dbCode = String(error?.code || '');
+  const mappedStatus = HTTP_STATUS_BY_DB_CODE[dbCode];
+  const status = error.status || mappedStatus || 500;
+  const rawMessage = typeof error.message === 'string' ? error.message : 'Internal server error';
+  let message = rawMessage;
 
   if (typeof message === 'string' && message.includes("Could not find the table 'public.focus_stats'")) {
     message = '数据库缺少 focus_stats 表，请先执行 backend/supabase/migration_20260210_focus_stats_cloud.sql';
@@ -133,6 +155,12 @@ app.use((error, _req, res, _next) => {
     (message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('connect timeout'))
   ) {
     message = '后端与数据库通信异常，请稍后重试';
+  }
+
+  // Raw PostgREST/Postgres text is useless to users and leaks schema details, so swap in a
+  // generic one — but only when none of the specific rewrites above already matched.
+  if (!error.status && mappedStatus && message === rawMessage && DB_CODE_MESSAGES[dbCode]) {
+    message = DB_CODE_MESSAGES[dbCode];
   }
 
   if (status >= 500) {

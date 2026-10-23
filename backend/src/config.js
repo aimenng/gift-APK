@@ -38,6 +38,10 @@ export const config = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   passwordHashRounds: parseBoundedInt(process.env.PASSWORD_HASH_ROUNDS, 10, 8, 14),
   defaultTogetherDate: process.env.DEFAULT_TOGETHER_DATE || '2021-10-12',
+  // Day boundaries for focus streaks/stats must match what the app shows the user.
+  // The frontend renders dates in the device's local zone, so pin the server to the
+  // app's audience zone instead of the host's (Vercel runs UTC).
+  appTimezone: String(process.env.APP_TIMEZONE || 'Asia/Shanghai').trim() || 'Asia/Shanghai',
   bodyLimit: process.env.BODY_LIMIT || '12mb',
   maxImageBytes: parseBoundedInt(process.env.MAX_IMAGE_BYTES, 10 * 1024 * 1024, 256 * 1024, 50 * 1024 * 1024),
   maxAvatarLength: parseBoundedInt(process.env.MAX_AVATAR_LENGTH, 240_000, 8_000, 2_000_000),

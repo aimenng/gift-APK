@@ -94,6 +94,8 @@ type CloudSyncMode = 'full' | 'light';
 
 const CLOUD_SYNC_PAGE_SIZE = 30;
 const CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE = 8;
+// Safety valve so a stuck `hasMore` can never turn into an unbounded request loop.
+const CLOUD_SYNC_MAX_PAGES = 200;
 const CLOUD_FULL_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 const CLOUD_SYNC_INTERVAL_CONNECTED_MS = 45_000;
 const CLOUD_SYNC_INTERVAL_DISCONNECTED_MS = 20_000;
@@ -137,17 +139,17 @@ const computeYearStatsFromMemories = (items: Memory[]): YearStat[] => {
   return Object.values(groups).sort((a, b) => b.year.localeCompare(a.year));
 };
 
-const parseEventCreatedAt = (event: AnniversaryEvent): number => {
+const parseEventCreatedAt = (event: AnniversaryEvent): number | null => {
   const ts = Date.parse(event.createdAt || '');
-  return Number.isNaN(ts) ? 0 : ts;
+  return Number.isNaN(ts) ? null : ts;
 };
 
-const dedupeRecentDuplicateEvents = (items: AnniversaryEvent[]): AnniversaryEvent[] => {
+export const dedupeRecentDuplicateEvents = (items: AnniversaryEvent[]): AnniversaryEvent[] => {
   if (!Array.isArray(items) || items.length <= 1) return items || [];
 
   const dedupeWindowMs = 30_000;
   const ordered = [...items].sort((a, b) => {
-    const diff = parseEventCreatedAt(b) - parseEventCreatedAt(a);
+    const diff = (parseEventCreatedAt(b) ?? 0) - (parseEventCreatedAt(a) ?? 0);
     if (diff !== 0) return diff;
     return String(b.id).localeCompare(String(a.id));
   });
@@ -167,14 +169,17 @@ const dedupeRecentDuplicateEvents = (items: AnniversaryEvent[]): AnniversaryEven
 
     const createdAtTs = parseEventCreatedAt(event);
     const lastTs = lastCreatedAtByFingerprint.get(fingerprint);
+    // Only collapse entries when both timestamps are known and genuinely close together.
+    // Hiding a real anniversary is worse than showing a rare duplicate.
     const isDuplicate =
-      lastTs != null &&
-      (createdAtTs === 0 || lastTs === 0 || Math.abs(lastTs - createdAtTs) <= dedupeWindowMs);
+      lastTs != null && createdAtTs != null && Math.abs(lastTs - createdAtTs) <= dedupeWindowMs;
 
     if (isDuplicate) continue;
 
     deduped.push(event);
-    lastCreatedAtByFingerprint.set(fingerprint, createdAtTs || 0);
+    if (createdAtTs != null) {
+      lastCreatedAtByFingerprint.set(fingerprint, createdAtTs);
+    }
   }
 
   return deduped;
@@ -300,8 +305,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (syncEpochRef.current !== syncEpoch) return;
 
       const firstPageMemories = [...(firstPage.memories || [])];
-      const totalPages = Math.max(1, firstPage.memoryPagination?.totalPages || 1);
-      const pagesToFetch = Array.from({ length: Math.max(0, totalPages - 1) }, (_, idx) => idx + 2);
       const serverYearStats =
         firstPage.yearStats && firstPage.yearStats.length > 0 ? firstPage.yearStats : null;
 
@@ -332,17 +335,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      if (!shouldRunFullSync || pagesToFetch.length === 0) {
+      if (!shouldRunFullSync || !firstPage.memoryPagination?.hasMore) {
         return;
       }
       lastFullSyncAtRef.current = Date.now();
 
-      // Fetch extra pages in background to keep login/navigation responsive.
+      // Fetch remaining pages in the background to keep login/navigation responsive.
+      // `totalPages` from an includeCount=0 response is only a guess, so keep paging
+      // until a page comes back short instead of trusting it.
       void (async () => {
         const allMemories = [...firstPageMemories];
-        for (let i = 0; i < pagesToFetch.length; i += CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE) {
+        let nextPage = 2;
+        // Probe the first extra page alone — most libraries fit in two pages, and this
+        // avoids firing a full parallel chunk on every sync when there is nothing to fetch.
+        let chunkSize = 1;
+
+        while (nextPage <= CLOUD_SYNC_MAX_PAGES) {
           if (syncEpochRef.current !== syncEpoch) return;
-          const chunk = pagesToFetch.slice(i, i + CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE);
+
+          const pageCount = Math.min(chunkSize, CLOUD_SYNC_MAX_PAGES - nextPage + 1);
+          const chunk = Array.from({ length: pageCount }, (_, idx) => nextPage + idx);
           const chunkResults = await Promise.all(
             chunk.map((page) =>
               apiGet<MemoriesPageResponse>(
@@ -350,17 +362,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               )
             )
           );
-          chunkResults.forEach((next) => {
-            allMemories.push(...(next.memories || []));
-          });
-        }
 
-        if (syncEpochRef.current !== syncEpoch) return;
-        if (allMemories.length !== firstPageMemories.length) {
-          setMemories(allMemories);
-          if (!serverYearStats) {
-            setYearStats(computeYearStatsFromMemories(allMemories));
+          let reachedLastPage = false;
+          for (const next of chunkResults) {
+            const rows = next?.memories || [];
+            allMemories.push(...rows);
+            if (rows.length < CLOUD_SYNC_PAGE_SIZE) {
+              reachedLastPage = true;
+              break;
+            }
           }
+
+          if (syncEpochRef.current !== syncEpoch) return;
+          if (allMemories.length !== firstPageMemories.length) {
+            setMemories(allMemories);
+            if (!serverYearStats) {
+              setYearStats(computeYearStatsFromMemories(allMemories));
+            }
+          }
+
+          if (reachedLastPage) return;
+          nextPage += pageCount;
+          chunkSize = CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE;
         }
       })().catch((error) => {
         console.error('Failed to hydrate extra memory pages:', error);

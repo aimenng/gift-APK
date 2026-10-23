@@ -260,6 +260,11 @@ export async function getPhotoDate(file: File): Promise<string> {
   return metadata.date;
 }
 
+// Memory dates are wall-clock days for the user, so derive them from local components.
+// toISOString() would shift any photo taken before the local UTC offset into the previous day.
+const toLocalDateOnly = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export async function getPhotoMetadata(file: File): Promise<PhotoMetadata> {
   const exifDateTime = await extractExifDateTime(file);
   if (exifDateTime) {
@@ -273,19 +278,18 @@ export async function getPhotoMetadata(file: File): Promise<PhotoMetadata> {
   if (file.lastModified) {
     const d = new Date(file.lastModified);
     if (d.getFullYear() >= 2000 && d.getFullYear() <= 2100) {
-      const dateTime = d.toISOString();
       return {
-        date: dateTime.slice(0, 10),
-        dateTime,
+        date: toLocalDateOnly(d),
+        dateTime: d.toISOString(),
         source: 'file',
       };
     }
   }
 
-  const now = getNow().toISOString();
+  const now = getNow();
   return {
-    date: now.slice(0, 10),
-    dateTime: now,
+    date: now.format('YYYY-MM-DD'),
+    dateTime: now.toISOString(),
     source: 'system',
   };
 }

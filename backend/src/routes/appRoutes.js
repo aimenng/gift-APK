@@ -118,7 +118,7 @@ const normalizeDateOnlyString = (value) => {
 
   const parsed = Date.parse(raw);
   if (!Number.isNaN(parsed)) {
-    return new Date(parsed).toISOString().slice(0, 10);
+    return toDateOnly(new Date(parsed));
   }
 
   return raw;
@@ -338,10 +338,18 @@ const clampNonNegativeInt = (value) => {
 
 const toDateOnly = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString().slice(0, 10);
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  try {
+    // en-CA renders exactly YYYY-MM-DD for the requested zone.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: config.appTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(safeDate);
+  } catch {
+    return safeDate.toISOString().slice(0, 10);
   }
-  return date.toISOString().slice(0, 10);
 };
 
 const dateDiffInDays = (fromDate, toDate) => {

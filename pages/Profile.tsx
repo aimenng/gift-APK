@@ -27,6 +27,9 @@ import { useToast } from '../components/Toast';
 import { PeriodTracker } from '../components/PeriodTracker';
 import { PixelAvatarShowcase } from '../components/PixelAvatar';
 import { AnimatedAvatarShowcase } from '../components/AnimatedAvatar';
+import { copyText } from '../utils/clipboard';
+
+const DEVELOPER_EMAIL = '2305427577@qq.com';
 
 interface ProfilePageProps {
   onNavigateToAuth: () => void;
@@ -201,10 +204,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
-  const handleCopyCode = () => {
+  const handleCopyCode = async () => {
     if (!effectiveInviteCode) return;
-    navigator.clipboard.writeText(effectiveInviteCode);
-    showToast('邀请码已复制', 'love');
+    const copied = await copyText(effectiveInviteCode);
+    if (copied) {
+      showToast('邀请码已复制', 'love');
+    } else {
+      showToast('复制失败，请手动记录邀请码', 'error');
+    }
   };
 
   const handleNotificationClick = () => {
@@ -216,10 +223,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     if (markAllReadBusy || unreadCount <= 0) return;
     setMarkAllReadBusy(true);
     try {
-      await markAllAsRead();
-      showToast('全部消息已标记为已读', 'success');
+      const ok = await markAllAsRead();
+      showToast(ok ? '全部消息已标记为已读' : '标记失败，请稍后重试', ok ? 'success' : 'error');
     } finally {
       setMarkAllReadBusy(false);
+    }
+  };
+
+  const handleClearNotifications = async () => {
+    const ok = await clearNotifications();
+    if (!ok) {
+      showToast('清空失败，请稍后重试', 'error');
     }
   };
 
@@ -242,8 +256,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
     const subject = encodeURIComponent('【Gifts应用反馈】来自用户');
     const body = encodeURIComponent(feedbackText);
-    window.open(`mailto:2305427577@qq.com?subject=${subject}&body=${body}`, '_blank');
-    showToast('已打开邮件客户端', 'success');
+    // window.open is popup-blocked in most WebViews and returns null even on success,
+    // so navigate instead and don't claim the mail client actually opened.
+    window.location.href = `mailto:${DEVELOPER_EMAIL}?subject=${subject}&body=${body}`;
+    showToast(`如未自动打开邮件，请发送至 ${DEVELOPER_EMAIL}`, 'success');
     setFeedbackText('');
     setShowFeedback(false);
   };
@@ -548,7 +564,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   已读
                 </button>
                 <button
-                  onClick={clearNotifications}
+                  onClick={handleClearNotifications}
                   className="h-8 px-2.5 rounded-lg text-[11px] sm:text-xs text-[var(--eye-text-secondary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex items-center gap-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -725,12 +741,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-[var(--eye-text-secondary)]">开发者邮箱</p>
-                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">2305427577@qq.com</p>
+                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">{DEVELOPER_EMAIL}</p>
               </div>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText('2305427577@qq.com');
-                  showToast('邮箱已复制', 'success');
+                onClick={async () => {
+                  const copied = await copyText(DEVELOPER_EMAIL);
+                  showToast(copied ? '邮箱已复制' : '复制失败，请手动记录邮箱', copied ? 'success' : 'error');
                 }}
                 className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0"
               >

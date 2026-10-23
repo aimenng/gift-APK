@@ -55,6 +55,8 @@ export const mapEvent = (row, authorRow = null) => ({
   image: row.image || '',
   userId: row.user_id || '',
   author: mapAuthor(authorRow),
+  createdAt: row.created_at || null,
+  updatedAt: row.updated_at || null,
 });
 
 const LEGACY_NOTIFICATION_TITLE_MAP = {

@@ -124,8 +124,12 @@ XLGift 是一个面向情侣关系的「记录 + 同步 + 陪伴」应用。
 ### 前端
 
 - React + TypeScript + Vite
+- Tailwind CSS（构建期编译，配置见 `tailwind.config.js`）+ `index.css` 手写样式
 - Context 状态管理（`context.tsx` + `authContext.tsx`）
 - 组件化页面：Timeline、Anniversary、Focus、Profile、Auth、Connection
+
+> 样式不再依赖 `cdn.tailwindcss.com` 运行时编译。改完 `tailwind.config.js` 或 `index.css`
+> 需要重启 dev server —— Vite 不会热重载 PostCSS 配置。
 
 ### 后端
 
@@ -186,6 +190,27 @@ VITE_API_BASE_URL=/api
 
 Vite 会通过 `vite.config.ts` 将 `/api` 代理到 `http://localhost:8787`。
 
+生产构建 / Android 打包还需额外配置：
+
+```bash
+cp .env.production.example .env.production
+```
+
+`vite build` 跑的是 production 模式，只会加载 `.env.production`，**不会**加载 `.env.development`，
+也不会加载 `.env.android.example`（这个文件名 Vite 根本不认识）。
+所以打包 APK 前必须在 `.env.production` 里填一个手机真机能访问到的绝对地址：
+
+```env
+VITE_API_BASE_URL_MOBILE=https://你的后端域名/api
+```
+
+`npm run build:mobile` 会先执行 `npm run check:native-env` 校验这个地址，
+填错或没填会直接失败，避免打出一个所有接口都请求不通的 APK。
+只在安卓模拟器里调试时可以用 `ALLOW_EMULATOR_API_URL=1 npm run build:mobile` 跳过校验。
+
+> `.env.production` 会进仓库，只放公开域名，绝对不要放任何密钥
+> （尤其是 `SUPABASE_SERVICE_ROLE_KEY`，它只能待在 `backend/.env`）。
+
 ### 4) 一键启动前后端
 
 ```bash
@@ -218,7 +243,8 @@ npm run dev:full
 | `npm run dev:full` | 同时启动前后端 |
 | `npm run build` | 前端生产构建 |
 | `npm run check:text-encoding` | 检查文本编码与乱码 |
-| `npm run build:mobile` | 构建 Web 并同步到 Android 工程 |
+| `npm run check:native-env` | 校验原生构建用的接口地址是否真机可达 |
+| `npm run build:mobile` | 构建 Web 并同步到 Android 工程（会先跑 `check:native-env`） |
 | `npm run android:sync` | 仅同步 Capacitor 到 Android |
 | `npm run android:open` | 用 Android Studio 打开工程 |
 
@@ -237,6 +263,9 @@ npm run dev:full
 ## Android 打包（XLGift）
 
 > 当前 Android 应用展示名已统一为：`XLGift`
+
+前置条件：先按上文配好 `.env.production` 里的 `VITE_API_BASE_URL_MOBILE`，
+否则 `build:mobile` 会在环境校验这一步直接失败（这是有意的，避免打出连不上后端的包）。
 
 ### Debug APK
 

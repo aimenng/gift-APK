@@ -18,6 +18,7 @@ import { IMAGES } from '../constants';
 import { useToast } from '../components/Toast';
 import { CuteLoadingScreen } from '../components/CuteLoadingScreen';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { copyText } from '../utils/clipboard';
 
 interface ConnectionProps {
   onComplete: () => void;
@@ -171,13 +172,13 @@ export const ConnectionPage: React.FC<ConnectionProps> = ({ onComplete, onLogin,
     }
   };
 
-  const handleCopyInviteCode = () => {
+  const handleCopyInviteCode = async () => {
     if (!displayInviteCode) {
       showToast('邀请码仍在生成中，请稍后重试', 'error');
       return;
     }
-    navigator.clipboard.writeText(displayInviteCode);
-    showToast('邀请码已复制', 'love');
+    const copied = await copyText(displayInviteCode);
+    showToast(copied ? '邀请码已复制' : '复制失败，请手动记录邀请码', copied ? 'love' : 'error');
   };
 
   return (

@@ -13,7 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check:text-encoding": "node scripts/check-text-encoding.mjs",
-    "build:mobile": "npm run build && npx cap sync android",
+    "check:native-env": "node scripts/check-native-env.mjs",
+    "build:mobile": "npm run check:native-env && npm run build && npx cap sync android",
     "android:sync": "npx cap sync android",
     "android:open": "npx cap open android",
     "android:apk": "npm run build:mobile && bash scripts/bootstrap-gradle-wrapper.sh && cd android && ./gradlew assembleDebug",
@@ -48,6 +49,9 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

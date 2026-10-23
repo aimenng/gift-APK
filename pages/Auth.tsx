@@ -43,6 +43,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // No default on purpose: the backend used to hardcode every new account to 'male',
+  // which silently locked the period tracker for female users.
+  const [gender, setGender] = useState<'male' | 'female' | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
   const [registerStep, setRegisterStep] = useState<RegisterStep>('form');
   const [resetStep, setResetStep] = useState<ResetStep>('none');
@@ -92,6 +95,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     setEmail('');
     setPassword('');
     setConfirmPassword('');
+    setGender(null);
     setVerificationCode('');
     setRegisterStep('form');
     setResetStep('none');
@@ -148,6 +152,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       setError('两次输入的密码不一致');
       return;
     }
+    if (!gender) {
+      setError('请选择性别');
+      return;
+    }
 
     setLoadingText('正在发送验证码...');
     setSubmitting(true);
@@ -178,7 +186,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     setLoadingText('正在验证注册信息...');
     setSubmitting(true);
     try {
-      const ok = await verifyRegisterCode(email, verificationCode, password);
+      const ok = await verifyRegisterCode(email, verificationCode, password, gender);
       if (!ok) {
         setError('验证码错误或已过期，请重试');
         return;
@@ -795,6 +803,39 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
                   {showRegConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-[var(--eye-text-secondary)] ml-1">性别</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGender('male')}
+                  className={`h-12 rounded-xl border-2 flex items-center justify-center gap-2 transition-all ${
+                    gender === 'male'
+                      ? 'border-primary bg-primary/10 text-primary font-bold'
+                      : 'border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] text-[var(--eye-text-secondary)] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span>男生</span>
+                  {gender === 'male' && <Check className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGender('female')}
+                  className={`h-12 rounded-xl border-2 flex items-center justify-center gap-2 transition-all ${
+                    gender === 'female'
+                      ? 'border-primary bg-primary/10 text-primary font-bold'
+                      : 'border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] text-[var(--eye-text-secondary)] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span>女生</span>
+                  {gender === 'female' && <Check className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-[var(--eye-text-secondary)] ml-1 pt-1">
+                影响默认头像，以及是否开启经期记录。之后可在「编辑资料」里修改。
+              </p>
             </div>
 
             <div className="pt-4">

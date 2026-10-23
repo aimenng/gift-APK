@@ -281,22 +281,21 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
     if (isFutureDate(date)) return;
     const dateKey = toDateKey(date);
 
-    setOwnData((prev) => {
-      const previous = prev[dateKey];
-      const next = normalizeDayRecord(updater(previous || { isPeriod: false, mood: null, flow: null }));
-      if (sameDayRecord(previous, next)) return prev;
+    const previous = ownData[dateKey];
+    const next = normalizeDayRecord(updater(previous || { isPeriod: false, mood: null, flow: null }));
+    if (sameDayRecord(previous, next)) return;
 
+    setOwnData((prev) => {
       const updated = { ...prev };
       if (!next.isPeriod && !next.mood && !next.flow) {
         delete updated[dateKey];
       } else {
         updated[dateKey] = next;
       }
-
-      void persistOwnRecord(dateKey, next, previous);
-
       return updated;
     });
+
+    void persistOwnRecord(dateKey, next, previous);
   };
 
   const changeMonth = (delta: number) =>
