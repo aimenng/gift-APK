@@ -96,11 +96,6 @@ export const getUserByInviteCode = async (inviteCode) => {
   return data;
 };
 
-export const getPartnerByUser = async (userRow) => {
-  if (!userRow?.partner_id) return null;
-  return getUserById(userRow.partner_id);
-};
-
 export const ensureUserSettings = async (userId, isConnected = false) => {
   const readRow = async () => {
     const { data, error } = await supabase

@@ -1781,23 +1781,6 @@ router.delete(
   })
 );
 
-router.get(
-  '/events',
-  requireAuth,
-  withAsync(async (req, res) => {
-    const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, '用户不存在');
-    const sharedUserIds = buildSharedUserIds(user);
-
-    const [events, authorMap] = await Promise.all([
-      loadEventsByUsers(sharedUserIds),
-      loadUserMapByIds(sharedUserIds),
-    ]);
-
-    return res.json({ events: events.map((row) => mapEvent(row, authorMap.get(row.user_id))) });
-  })
-);
-
 router.post(
   '/events',
   requireAuth,

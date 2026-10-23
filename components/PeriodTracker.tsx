@@ -113,6 +113,14 @@ const normalizeMoodLabel = (value?: string | null): string | null => {
   if (CANONICAL_MOOD_LABELS.has(raw)) return raw;
 
   // Compatibility: handle historical mojibake and partial legacy mood values.
+  //
+  // Do not delete this until the database has been verified clean, e.g.:
+  //   select mood, count(*) from period_tracker_entries
+  //    where mood is not null
+  //      and mood not in ('开心','幸福','平静','难过','焦虑')
+  //    group by mood;
+  // Returning null here hides that day's mood in the UI, so removing the table while
+  // corrupted rows still exist would silently discard data the user can see today.
   if (
     raw.includes('\\u5f00') || raw.includes('\\u5fc3') ||
     raw.includes('\u5bee') || raw.includes('\u8e47') || raw.includes('\u7035')

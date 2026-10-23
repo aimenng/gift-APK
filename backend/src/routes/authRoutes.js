@@ -384,15 +384,6 @@ router.post(
 );
 
 router.post(
-  '/register',
-  withAsync(async (_req, res) => {
-    return res.status(400).json({
-      error: '注册流程已升级，请先调用 /api/auth/register/request-code 再调用 /api/auth/register/verify。',
-    });
-  })
-);
-
-router.post(
   '/password/request-reset-code',
   withAsync(async (req, res) => {
     const startedAt = Date.now();

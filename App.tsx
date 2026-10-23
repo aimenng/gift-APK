@@ -118,7 +118,7 @@ const AppContent: React.FC = () => {
     currentView !== View.EDIT_PROFILE;
 
   return (
-    <Layout fullScreen={!showNav}>
+    <Layout>
       <div
         key={displayView}
         className={transitioning ? 'page-transition-exit' : 'page-transition-enter'}
