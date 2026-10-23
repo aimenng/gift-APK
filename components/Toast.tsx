@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { CheckCircle2, AlertCircle, X, Heart } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'love';
@@ -18,16 +18,30 @@ const ToastContext = createContext<ToastContextType>({ showToast: () => {} });
 
 export const useToast = () => useContext(ToastContext);
 
+const DURATION_MAP: Record<ToastType, number> = {
+  success: 2000,
+  error: 5000,
+  love: 3000,
+};
+
 let toastId = 0;
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
 
-  const DURATION_MAP: Record<ToastType, number> = {
-    success: 2000,
-    error: 5000,
-    love: 3000,
-  };
+  const track = useCallback((timer: ReturnType<typeof setTimeout>) => {
+    timersRef.current.add(timer);
+    return timer;
+  }, []);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
 
   const showToast = useCallback((message: string, type: ToastType = 'success') => {
     const id = ++toastId;
@@ -35,27 +49,27 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts(prev => [...prev, { id, message, type }]);
 
     // Start exit animation
-    setTimeout(() => {
+    track(setTimeout(() => {
       setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
-    }, duration);
+    }, duration));
 
     // Remove
-    setTimeout(() => {
+    track(setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, duration + 300);
-  }, []);
+    }, duration + 300));
+  }, [track]);
 
   const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
-    setTimeout(() => {
+    track(setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 200);
-  }, []);
+    }, 200));
+  }, [track]);
 
   const icons: Record<ToastType, React.ReactNode> = {
-    success: <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500 shrink-0" />,
-    error: <AlertCircle className="w-4.5 h-4.5 text-red-500 shrink-0" />,
-    love: <Heart className="w-4.5 h-4.5 text-rose-400 fill-current shrink-0" />,
+    success: <CheckCircle2 className="w-[1.125rem] h-[1.125rem] text-emerald-500 shrink-0" />,
+    error: <AlertCircle className="w-[1.125rem] h-[1.125rem] text-red-500 shrink-0" />,
+    love: <Heart className="w-[1.125rem] h-[1.125rem] text-rose-400 fill-current shrink-0" />,
   };
 
   const bgColors: Record<ToastType, string> = {

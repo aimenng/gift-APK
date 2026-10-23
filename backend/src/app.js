@@ -81,9 +81,31 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
 });
 
+// PostgREST/Postgres errors carry a `code` but no HTTP status, so without this map they
+// all fall through to a misleading 500.
+const HTTP_STATUS_BY_DB_CODE = {
+  PGRST116: 404, // .single() matched no row — the record is gone or belongs to someone else
+  PGRST102: 404,
+  23505: 409, // unique violation
+  23503: 409, // foreign key violation
+  23502: 400, // not-null violation
+  22001: 400, // value too long for column
+};
+
+const DB_CODE_MESSAGES = {
+  PGRST116: '记录不存在或无权访问',
+  23505: '内容重复，请稍后重试',
+  23503: '关联数据不存在，请刷新后重试',
+  23502: '缺少必填内容',
+  22001: '内容过长，请精简后重试',
+};
+
 app.use((error, _req, res, _next) => {
-  const status = error.status || 500;
-  let message = error.message || 'Internal server error';
+  const dbCode = String(error?.code || '');
+  const mappedStatus = HTTP_STATUS_BY_DB_CODE[dbCode];
+  const status = error.status || mappedStatus || 500;
+  const rawMessage = typeof error.message === 'string' ? error.message : 'Internal server error';
+  let message = rawMessage;
 
   if (typeof message === 'string' && message.includes("Could not find the table 'public.focus_stats'")) {
     message = '数据库缺少 focus_stats 表，请先执行 backend/supabase/migration_20260210_focus_stats_cloud.sql';
@@ -91,6 +113,16 @@ app.use((error, _req, res, _next) => {
 
   if (typeof message === 'string' && message.includes("Could not find the table 'public.focus_timer_state'")) {
     message = '数据库缺少 focus_timer_state 表，请先执行 backend/supabase/migration_20260213_focus_timer_state.sql';
+  }
+
+  if (typeof message === 'string' && message.includes('complete_focus_session')) {
+    message =
+      '数据库缺少 complete_focus_session 函数，请先执行 backend/supabase/migration_20261024_focus_session_atomic.sql';
+  }
+
+  if (typeof message === 'string' && message.includes('consume_verification_attempt')) {
+    message =
+      '数据库缺少 consume_verification_attempt 函数，请先执行 backend/supabase/migration_20261024_atomic_verification_attempts.sql';
   }
 
   if (
@@ -135,8 +167,19 @@ app.use((error, _req, res, _next) => {
     message = '后端与数据库通信异常，请稍后重试';
   }
 
+  // Raw PostgREST/Postgres text is useless to users and leaks schema details, so swap in a
+  // generic one — but only when none of the specific rewrites above already matched.
+  if (!error.status && mappedStatus && message === rawMessage && DB_CODE_MESSAGES[dbCode]) {
+    message = DB_CODE_MESSAGES[dbCode];
+  }
+
   if (status >= 500) {
     console.error('[Backend Error]', error);
+    // None of the known-issue rewrites matched, so `message` is still raw driver text that
+    // can leak table and column names. It is logged above; the client gets a generic one.
+    if (message === rawMessage) {
+      message = '服务器内部错误，请稍后重试';
+    }
   }
 
   res.status(status).json({ error: message });

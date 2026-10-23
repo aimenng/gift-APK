@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { config } from './config.js';
+import { config, requireConfig } from './config.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const withTimeout = (promise, timeoutMs, timeoutMessage) =>
@@ -79,6 +79,11 @@ const robustFetch = async (url, options = {}) => {
 
   throw new Error('Unexpected fetch retry state');
 };
+
+// This module is evaluated while `app.js` is still being imported, i.e. before its own
+// requireConfig() call. Validate here so a missing backend/.env reports the real cause
+// instead of supabase-js's opaque "supabaseUrl is required.".
+requireConfig();
 
 export const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
   auth: {

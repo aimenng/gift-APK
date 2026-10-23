@@ -59,6 +59,12 @@ export const syncTime = async (): Promise<void> => {
         clearTimeout(timeout);
 
         const t1 = Date.now();
+        // A 4xx/5xx body is HTML rather than JSON, so res.json() would throw and fall
+        // through anyway — saying so explicitly keeps the real reason in the logs.
+        if (!res.ok) {
+          console.warn(`[TimeSync] ⚠️ ${api.url} 返回 HTTP ${res.status}，尝试下一个...`);
+          continue;
+        }
         const json = await res.json();
         const serverMs = api.parse(json);
 

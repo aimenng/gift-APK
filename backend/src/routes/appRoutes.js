@@ -9,7 +9,6 @@ import {
   assertDateString,
   assertInviteCode,
   buildHttpError,
-  createRandomToken,
   ensureUserSettings,
   getUserById,
   getUserByInviteCode,
@@ -118,7 +117,7 @@ const normalizeDateOnlyString = (value) => {
 
   const parsed = Date.parse(raw);
   if (!Number.isNaN(parsed)) {
-    return new Date(parsed).toISOString().slice(0, 10);
+    return toDateOnly(new Date(parsed));
   }
 
   return raw;
@@ -172,17 +171,31 @@ const mapWithConcurrency = async (items, limit, worker) => {
 
   const results = new Array(items.length);
   let cursor = 0;
+  let aborted = false;
 
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (cursor < items.length) {
+      if (aborted) return;
       const index = cursor;
       cursor += 1;
-      // eslint-disable-next-line no-await-in-loop
-      results[index] = await worker(items[index], index);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        results[index] = await worker(items[index], index);
+      } catch (error) {
+        aborted = true;
+        throw error;
+      }
     }
   });
 
-  await Promise.all(runners);
+  // Promise.all would reject on the first failure while sibling runners are still
+  // mid-upload; the caller's cleanup would then run before they record their storage
+  // keys, leaving orphaned objects in the bucket forever. Stop handing out new work as
+  // soon as one fails, but wait for every runner to settle before throwing.
+  const settled = await Promise.allSettled(runners);
+  const failure = settled.find((result) => result.status === 'rejected');
+  if (failure) throw failure.reason;
+
   return results;
 };
 
@@ -323,7 +336,6 @@ const loadEventsByUsers = async (userIds) => {
 
 const PERIOD_FLOW_LEVELS = new Set(['light', 'medium', 'heavy']);
 const PERIOD_MOOD_CANONICAL = new Set(['开心', '幸福', '平静', '难过', '焦虑']);
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FOCUS_TIMER_MODES = new Set(['countdown', 'countup']);
 const FOCUS_TIMER_DEFAULT_INITIAL_SECONDS = 25 * 60;
 const FOCUS_TIMER_MIN_INITIAL_SECONDS = 60;
@@ -338,18 +350,18 @@ const clampNonNegativeInt = (value) => {
 
 const toDateOnly = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString().slice(0, 10);
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  try {
+    // en-CA renders exactly YYYY-MM-DD for the requested zone.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: config.appTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(safeDate);
+  } catch {
+    return safeDate.toISOString().slice(0, 10);
   }
-  return date.toISOString().slice(0, 10);
-};
-
-const dateDiffInDays = (fromDate, toDate) => {
-  if (!fromDate || !toDate) return null;
-  const fromTs = Date.parse(`${fromDate}T00:00:00Z`);
-  const toTs = Date.parse(`${toDate}T00:00:00Z`);
-  if (!Number.isFinite(fromTs) || !Number.isFinite(toTs)) return null;
-  return Math.round((toTs - fromTs) / DAY_MS);
 };
 
 const normalizePeriodMood = (value) => {
@@ -535,35 +547,7 @@ const mapMemoryForResponse = async (row, authorRow = null) => {
 const mapMemoriesForResponse = async (rows, authorMap = null) =>
   mapWithConcurrency(rows || [], 6, async (row) => mapMemoryForResponse(row, authorMap?.get(row.user_id)));
 
-const htmlResponse = (title, message, buttonText = '打开应用') => `
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f8f8f6; color: #1f2937; margin: 0; padding: 24px; }
-      .card { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.08);}
-      h1 { margin: 0 0 12px; font-size: 24px; }
-      p { margin: 0 0 14px; line-height: 1.7; }
-      a { display: inline-block; padding: 10px 16px; border-radius: 8px; text-decoration: none; color: #fff; background: #64723f; font-weight: 600; }
-      .muted { color: #6b7280; font-size: 12px; margin-top: 12px; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>${title}</h1>
-      <p>${message}</p>
-      <a href="${config.frontendUrl}">${buttonText}</a>
-      <p class="muted">如果按钮未能拉起应用，请复制此链接：${config.frontendUrl}</p>
-    </div>
-  </body>
-</html>
-`;
-
 const createBindingRequest = async (requester, target, inviteCode) => {
-  const token = createRandomToken(32);
   const expiresAt = addHoursIso(config.bindingRequestTtlHours);
 
   const { data, error } = await supabase
@@ -572,7 +556,6 @@ const createBindingRequest = async (requester, target, inviteCode) => {
       requester_user_id: requester.id,
       target_user_id: target.id,
       invite_code: inviteCode,
-      confirm_token: token,
       status: 'pending',
       expires_at: expiresAt,
     })
@@ -901,58 +884,6 @@ router.post(
       message: '已同意绑定请求',
       settings: mapSettings(settings, target),
     });
-  })
-);
-
-router.get(
-  '/bindings/confirm',
-  withAsync(async (req, res) => {
-    const token = String(req.query?.token || '').trim();
-    if (!token) {
-      return res
-        .status(400)
-        .send(htmlResponse('确认失败', '缺少确认令牌，请重试。', '返回应用'));
-    }
-
-    const { data: bindRequest, error: requestError } = await supabase
-      .from('binding_requests')
-      .select('*')
-      .eq('confirm_token', token)
-      .eq('status', 'pending')
-      .maybeSingle();
-    if (requestError) throw requestError;
-    if (!bindRequest) {
-      return res
-        .status(404)
-        .send(htmlResponse('请求不存在', '该绑定请求不存在或已处理。'));
-    }
-
-    if (new Date(bindRequest.expires_at).getTime() < Date.now()) {
-      await supabase.from('binding_requests').update({ status: 'expired' }).eq('id', bindRequest.id);
-      return res
-        .status(400)
-        .send(htmlResponse('请求已过期', '确认链接已过期，请让对方重新发起请求。'));
-    }
-
-    try {
-      await applyBindingAcceptance(bindRequest);
-    } catch (error) {
-      if ((error?.status || 500) === 404) {
-        return res
-          .status(404)
-          .send(htmlResponse('用户不存在', '该绑定请求中的一方账号已不存在。'));
-      }
-      if ((error?.status || 500) === 409) {
-        return res
-          .status(409)
-          .send(htmlResponse('无法绑定', '至少有一个账号已绑定。'));
-      }
-      throw error;
-    }
-
-    return res
-      .status(200)
-      .send(htmlResponse('绑定成功', '你已成功确认绑定。'));
   })
 );
 
@@ -1292,38 +1223,14 @@ router.patch(
     }
     const focusMinutes = focusMinutesRaw;
 
-    const row = await ensureFocusStatsRow(req.userId);
-    const today = toDateOnly();
-    const previousDate = row.last_focus_date || null;
-    const previousStreak = clampNonNegativeInt(row.streak);
-
-    let nextTodayFocus = focusMinutes;
-    let nextTodaySessions = 1;
-    let nextStreak = 1;
-
-    if (previousDate === today) {
-      nextTodayFocus = clampNonNegativeInt(row.today_focus_minutes) + focusMinutes;
-      nextTodaySessions = clampNonNegativeInt(row.today_sessions) + 1;
-      nextStreak = previousStreak > 0 ? previousStreak : 1;
-    } else {
-      const dayDiff = dateDiffInDays(previousDate, today);
-      nextStreak = dayDiff === 1 ? Math.max(1, previousStreak + 1) : 1;
-    }
-
-    const { data: updatedRow, error: updateError } = await supabase
-      .from('focus_stats')
-      .update({
-        today_focus_minutes: nextTodayFocus,
-        today_sessions: nextTodaySessions,
-        streak: nextStreak,
-        total_sessions: clampNonNegativeInt(row.total_sessions) + 1,
-        last_focus_date: today,
-        updated_at: nowIso(),
-      })
-      .eq('user_id', req.userId)
-      .select('*')
-      .single();
-    if (updateError) throw updateError;
+    // Read-modify-write in JS lost increments when two devices finished a session at the
+    // same time; the counters and streak are now computed inside one locked transaction.
+    const { data: updatedRow, error: rpcError } = await supabase.rpc('complete_focus_session', {
+      p_user_id: req.userId,
+      p_focus_minutes: focusMinutes,
+      p_today: toDateOnly(),
+    });
+    if (rpcError) throw rpcError;
 
     return res.json({ ok: true, stats: mapFocusStats(updatedRow) });
   })
@@ -1789,23 +1696,6 @@ router.delete(
     if (error) throw error;
     await cleanupUploadedImages([previousStorageKey], 'memory-delete-cleanup');
     return res.status(204).send();
-  })
-);
-
-router.get(
-  '/events',
-  requireAuth,
-  withAsync(async (req, res) => {
-    const user = await getUserById(req.userId);
-    if (!user) throw buildHttpError(404, '用户不存在');
-    const sharedUserIds = buildSharedUserIds(user);
-
-    const [events, authorMap] = await Promise.all([
-      loadEventsByUsers(sharedUserIds),
-      loadUserMapByIds(sharedUserIds),
-    ]);
-
-    return res.json({ events: events.map((row) => mapEvent(row, authorMap.get(row.user_id))) });
   })
 );
 

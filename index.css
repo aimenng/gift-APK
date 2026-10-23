@@ -2361,3 +2361,12 @@ button:active, [role="button"]:active {
     animation: none !important;
   }
 }
+
+/* ─── Tailwind ───
+   These directives stay at the END of the file on purpose. The previous setup loaded
+   Tailwind from cdn.tailwindcss.com, which injected its <style> after this stylesheet,
+   so utilities won any tie against the rules above. Keeping the same order here means
+   the build-time output cascades exactly like the CDN did. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

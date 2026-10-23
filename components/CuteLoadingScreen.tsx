@@ -199,7 +199,7 @@ export const CuteLoadingScreen: React.FC<CuteLoadingScreenProps> = ({ show, text
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[var(--eye-bg-primary)]/92 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-eye-bg-primary/[0.92] backdrop-blur-sm">
       <div className="cute-loading-card">
         {/* Dual-scene container */}
         <div className="loading-scene-wrap">

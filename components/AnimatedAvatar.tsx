@@ -628,11 +628,12 @@ export const CartoonAvatarSVG: React.FC<{
 
 /* ─── Full-screen Showcase Modal ─── */
 export const AnimatedAvatarShowcase: React.FC<AnimatedAvatarShowcaseProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   const [activeIndex, setActiveIndex] = useState(0);
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
+
+  if (!isOpen) return null;
+
   const activeAvatar = CARTOON_AVATARS[activeIndex];
 
   const goPrev = () => setActiveIndex((i) => (i - 1 + CARTOON_AVATARS.length) % CARTOON_AVATARS.length);
@@ -711,7 +712,7 @@ export const AnimatedAvatarShowcase: React.FC<AnimatedAvatarShowcaseProps> = ({ 
               className={`w-2 h-2 rounded-full transition-all ${
                 i === activeIndex
                   ? 'bg-[var(--eye-text-primary)] scale-125'
-                  : 'bg-[var(--eye-text-secondary)]/30'
+                  : 'bg-eye-text-secondary/30'
               }`}
             />
           ))}

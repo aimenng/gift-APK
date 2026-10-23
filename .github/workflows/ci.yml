@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: Typecheck, build and test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # test:unit imports a .ts file directly and relies on Node's type stripping.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (strict)
+        run: npx tsc --noEmit
+
+      - name: Backend syntax check
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            node --check "$f" || { echo "::error::syntax error in $f"; fail=1; }
+          done < <(find backend/src api -name '*.js')
+          exit "$fail"
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Text encoding check
+        run: npm run check:text-encoding
+
+      - name: Production build
+        run: npm run build
+
+      - name: Build output has no external asset dependencies
+        run: |
+          if grep -rqE 'cdn\.tailwindcss\.com|fonts\.googleapis\.com|esm\.sh' dist/index.html dist/assets/*.css; then
+            echo "::error::dist still references a runtime CDN; styles or fonts would break offline"
+            exit 1
+          fi
+
+      # The guard exists so a misconfigured native build fails instead of shipping an APK
+      # that points every request at the emulator-only 10.0.2.2 address. Test both sides.
+      - name: Native env guard rejects a missing API base URL
+        run: |
+          if npm run --silent check:native-env; then
+            echo "::error::check:native-env passed with no .env.production; it should have failed"
+            exit 1
+          fi
+
+      - name: Native env guard accepts a device-reachable URL
+        run: |
+          echo 'VITE_API_BASE_URL_MOBILE=https://ci-invalid-host.test/api' > .env.production
+          npm run --silent check:native-env
+          rm -f .env.production

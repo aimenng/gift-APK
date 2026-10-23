@@ -36,7 +36,12 @@ interface AuthContextType {
   users: User[];
   refreshAuthData: () => Promise<void>;
   requestRegisterCode: (email: string, password: string) => Promise<CodeRequestResult>;
-  verifyRegisterCode: (email: string, code: string, password?: string) => Promise<boolean>;
+  verifyRegisterCode: (
+    email: string,
+    code: string,
+    password?: string,
+    gender?: 'male' | 'female' | null
+  ) => Promise<boolean>;
   requestPasswordResetCode: (email: string) => Promise<CodeRequestResult>;
   resetPasswordWithCode: (email: string, code: string, newPassword: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<boolean>;
@@ -50,8 +55,8 @@ interface AuthContextType {
     type?: 'system' | 'interaction'
   ) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
-  markAllAsRead: () => Promise<void>;
-  clearNotifications: () => Promise<void>;
+  markAllAsRead: () => Promise<boolean>;
+  clearNotifications: () => Promise<boolean>;
   unreadCount: number;
   lastError: string | null;
 }
@@ -183,13 +188,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyRegisterCode = async (
     email: string,
     code: string,
-    password?: string
+    password?: string,
+    gender?: 'male' | 'female' | null
   ): Promise<boolean> => {
     try {
       const result = await apiPost<AuthResponse>('/auth/register/verify', {
         email,
         code,
         password,
+        ...(gender ? { gender } : {}),
       });
       await handleAuthSuccess(result);
       setLastError(null);
@@ -338,8 +345,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const markAllAsRead = async () => {
-    if (!currentUser) return;
+  const markAllAsRead = async (): Promise<boolean> => {
+    if (!currentUser) return false;
 
     try {
       await apiPatch<{ ok: boolean }>('/notifications/read-all', {});
@@ -347,23 +354,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         prev.map((n) => (n.userId === currentUser.id ? { ...n, read: true } : n))
       );
       setLastError(null);
+      return true;
     } catch (error: any) {
       console.error('markAllAsRead failed:', error);
       setLastError(error?.message || '一键标记已读失败');
+      return false;
     }
   };
 
-  const clearNotifications = async () => {
-    if (!currentUser) return;
+  const clearNotifications = async (): Promise<boolean> => {
+    if (!currentUser) return false;
 
     try {
       await apiDelete('/notifications');
       setLastError(null);
+      setAllNotifications((prev) => prev.filter((n) => n.userId !== currentUser.id));
+      return true;
     } catch (error: any) {
       console.error('clearNotifications failed:', error);
       setLastError(error?.message || '清空通知失败');
+      return false;
     }
-    setAllNotifications((prev) => prev.filter((n) => n.userId !== currentUser.id));
   };
 
   return (

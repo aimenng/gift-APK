@@ -6,10 +6,10 @@ const INVITE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_RE = /^\d{6}$/;
 const INVITE_CODE_RE = /^GIFT-[A-Z0-9]{4}$/;
-const FIXED_INVITE_CODE_BY_EMAIL = Object.freeze({
-  '2305427577@qq.com': 'XHB-LLQ',
-  '1057289305@qq.com': 'LLQ-XHB',
-});
+// Reserved email -> invite-code pairs come from BACKEND_FIXED_INVITE_CODES so that they
+// are not committed to a public repository. Empty by default: every address then gets a
+// randomly generated GIFT-XXXX code.
+const FIXED_INVITE_CODE_BY_EMAIL = config.fixedInviteCodes;
 const SPECIAL_INVITE_CODES = new Set(Object.values(FIXED_INVITE_CODE_BY_EMAIL));
 
 export const buildHttpError = (status, message) => {
@@ -65,14 +65,13 @@ export const assertDateString = (dateString, fieldName = 'date') => {
 export const generateInviteCode = () => {
   let code = '';
   for (let i = 0; i < 4; i += 1) {
-    const index = Math.floor(Math.random() * INVITE_CHARS.length);
-    code += INVITE_CHARS[index];
+    code += INVITE_CHARS[crypto.randomInt(INVITE_CHARS.length)];
   }
   return `GIFT-${code}`;
 };
 
-export const generateVerificationCode = () => String(Math.floor(100000 + Math.random() * 900000));
-export const createRandomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
+// 100000..999999 inclusive; crypto.randomInt's upper bound is exclusive.
+export const generateVerificationCode = () => String(crypto.randomInt(100000, 1000000));
 export const hashValue = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 export const nowIso = () => new Date().toISOString();
 export const addMinutesIso = (minutes) => new Date(Date.now() + minutes * 60 * 1000).toISOString();
@@ -96,19 +95,18 @@ export const getUserByInviteCode = async (inviteCode) => {
   return data;
 };
 
-export const getPartnerByUser = async (userRow) => {
-  if (!userRow?.partner_id) return null;
-  return getUserById(userRow.partner_id);
-};
-
 export const ensureUserSettings = async (userId, isConnected = false) => {
-  const { data: existing, error: selectError } = await supabase
-    .from('user_settings')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
+  const readRow = async () => {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  };
 
-  if (selectError) throw selectError;
+  const existing = await readRow();
   if (existing) return existing;
 
   const { data: inserted, error: insertError } = await supabase
@@ -121,8 +119,17 @@ export const ensureUserSettings = async (userId, isConnected = false) => {
     .select('*')
     .single();
 
-  if (insertError) throw insertError;
-  return inserted;
+  if (!insertError) return inserted;
+
+  // Login, /auth/me and /app/state can all fire this concurrently, so another caller may
+  // have inserted between our read and our write. A plain upsert is not an option here —
+  // it would clobber the together_date the user already set. Read back the winner instead.
+  if (String(insertError.code || '') === '23505') {
+    const winner = await readRow();
+    if (winner) return winner;
+  }
+
+  throw insertError;
 };
 
 export const createUniqueInviteCode = async () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -43,6 +43,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // No default on purpose: the backend used to hardcode every new account to 'male',
+  // which silently locked the period tracker for female users.
+  const [gender, setGender] = useState<'male' | 'female' | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
   const [registerStep, setRegisterStep] = useState<RegisterStep>('form');
   const [resetStep, setResetStep] = useState<ResetStep>('none');
@@ -88,10 +91,30 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     return () => window.clearTimeout(timer);
   }, [submitting]);
 
+  const navigateTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (navigateTimerRef.current != null) window.clearTimeout(navigateTimerRef.current);
+    },
+    []
+  );
+
+  // Both success paths delay navigation so the confirmation message stays visible. The
+  // timer must be cancellable, or it fires after unmount and navigates anyway.
+  const scheduleNavigateBack = () => {
+    if (navigateTimerRef.current != null) window.clearTimeout(navigateTimerRef.current);
+    navigateTimerRef.current = window.setTimeout(() => {
+      navigateTimerRef.current = null;
+      onBack();
+    }, 400);
+  };
+
   const resetForm = () => {
     setEmail('');
     setPassword('');
     setConfirmPassword('');
+    setGender(null);
     setVerificationCode('');
     setRegisterStep('form');
     setResetStep('none');
@@ -125,7 +148,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       }
       setSuccess('登录成功，正在同步数据...');
       setSwitchingAccount(false);
-      setTimeout(() => onBack(), 400);
+      scheduleNavigateBack();
     } finally {
       setSubmitting(false);
     }
@@ -146,6 +169,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     }
     if (password !== confirmPassword) {
       setError('两次输入的密码不一致');
+      return;
+    }
+    if (!gender) {
+      setError('请选择性别');
       return;
     }
 
@@ -178,14 +205,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
     setLoadingText('正在验证注册信息...');
     setSubmitting(true);
     try {
-      const ok = await verifyRegisterCode(email, verificationCode, password);
+      const ok = await verifyRegisterCode(email, verificationCode, password, gender);
       if (!ok) {
         setError('验证码错误或已过期，请重试');
         return;
       }
       setSuccess('注册完成，已自动登录');
       setSwitchingAccount(false);
-      setTimeout(() => onBack(), 400);
+      scheduleNavigateBack();
     } finally {
       setSubmitting(false);
     }
@@ -435,7 +462,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
               setActiveTab('login');
               setShowForm(true);
             }}
-            className="w-full max-w-xs h-13 rounded-2xl bg-primary text-white font-bold text-lg shadow-lg shadow-primary/20 active:scale-[0.97] transition-all hover:bg-[#7a8a4b] flex items-center justify-center gap-2.5 mb-4"
+            className="w-full max-w-xs h-[3.25rem] rounded-2xl bg-primary text-white font-bold text-lg shadow-lg shadow-primary/20 active:scale-[0.97] transition-all hover:bg-[#7a8a4b] flex items-center justify-center gap-2.5 mb-4"
           >
             <LogIn className="w-5 h-5" />
             立即登录
@@ -449,7 +476,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
             }}
             className="w-full max-w-xs h-12 rounded-2xl bg-[var(--eye-bg-secondary)] border border-[var(--eye-border)] text-[var(--eye-text-primary)] font-medium text-base active:scale-[0.97] transition-all hover:border-primary/30 flex items-center justify-center gap-2"
           >
-            <UserPlus className="w-4.5 h-4.5" />
+            <UserPlus className="w-[1.125rem] h-[1.125rem]" />
             注册新账号
           </button>
         </div>
@@ -462,10 +489,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
       <div className="flex items-center gap-4 py-4 mb-4">
         <button
           onClick={() => {
-            if (switchingAccount) {
+            // setSwitchingAccount(false) does not change the value read on the next line,
+            // so the previous `showForm && !switchingAccount` test always fell through to
+            // onBack() and threw the user out of the page instead of back to the account
+            // screen. Branch on the current values instead.
+            if (switchingAccount || showForm) {
               setSwitchingAccount(false);
-            }
-            if (showForm && !switchingAccount) {
               setShowForm(false);
               resetForm();
               return;
@@ -795,6 +824,39 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
                   {showRegConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-[var(--eye-text-secondary)] ml-1">性别</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGender('male')}
+                  className={`h-12 rounded-xl border-2 flex items-center justify-center gap-2 transition-all ${
+                    gender === 'male'
+                      ? 'border-primary bg-primary/10 text-primary font-bold'
+                      : 'border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] text-[var(--eye-text-secondary)] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span>男生</span>
+                  {gender === 'male' && <Check className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGender('female')}
+                  className={`h-12 rounded-xl border-2 flex items-center justify-center gap-2 transition-all ${
+                    gender === 'female'
+                      ? 'border-primary bg-primary/10 text-primary font-bold'
+                      : 'border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] text-[var(--eye-text-secondary)] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span>女生</span>
+                  {gender === 'female' && <Check className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-[var(--eye-text-secondary)] ml-1 pt-1">
+                影响默认头像，以及是否开启经期记录。之后可在「编辑资料」里修改。
+              </p>
             </div>
 
             <div className="pt-4">

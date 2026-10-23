@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 import { getNow } from '../utils/timeService';
 
 interface LoveTimerProps {
@@ -19,7 +20,9 @@ export const LoveTimer: React.FC<LoveTimerProps> = ({ startDate, size = 'normal'
 
     useEffect(() => {
         const calculateTimeLeft = () => {
-            const start = new Date(startDate).getTime();
+            // new Date('YYYY-MM-DD') parses as UTC midnight, which would make this counter
+            // disagree with calculateDaysTogether (local midnight) shown next to it.
+            const start = dayjs(startDate).startOf('day').valueOf();
             const now = getNow().valueOf();
             const difference = now - start;
 

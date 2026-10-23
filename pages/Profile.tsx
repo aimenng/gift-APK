@@ -27,6 +27,11 @@ import { useToast } from '../components/Toast';
 import { PeriodTracker } from '../components/PeriodTracker';
 import { PixelAvatarShowcase } from '../components/PixelAvatar';
 import { AnimatedAvatarShowcase } from '../components/AnimatedAvatar';
+import { copyText } from '../utils/clipboard';
+
+// Set VITE_DEVELOPER_EMAIL in the Vercel dashboard or .env.production.local. VITE_* values
+// end up in the client bundle, so committing the address would publish it again.
+const DEVELOPER_EMAIL = import.meta.env.VITE_DEVELOPER_EMAIL || '';
 
 interface ProfilePageProps {
   onNavigateToAuth: () => void;
@@ -201,10 +206,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
-  const handleCopyCode = () => {
+  const handleCopyCode = async () => {
     if (!effectiveInviteCode) return;
-    navigator.clipboard.writeText(effectiveInviteCode);
-    showToast('邀请码已复制', 'love');
+    const copied = await copyText(effectiveInviteCode);
+    if (copied) {
+      showToast('邀请码已复制', 'love');
+    } else {
+      showToast('复制失败，请手动记录邀请码', 'error');
+    }
   };
 
   const handleNotificationClick = () => {
@@ -216,10 +225,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     if (markAllReadBusy || unreadCount <= 0) return;
     setMarkAllReadBusy(true);
     try {
-      await markAllAsRead();
-      showToast('全部消息已标记为已读', 'success');
+      const ok = await markAllAsRead();
+      showToast(ok ? '全部消息已标记为已读' : '标记失败，请稍后重试', ok ? 'success' : 'error');
     } finally {
       setMarkAllReadBusy(false);
+    }
+  };
+
+  const handleClearNotifications = async () => {
+    const ok = await clearNotifications();
+    if (!ok) {
+      showToast('清空失败，请稍后重试', 'error');
     }
   };
 
@@ -240,10 +256,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       showToast('请输入反馈内容', 'error');
       return;
     }
+    if (!DEVELOPER_EMAIL) {
+      showToast('未配置反馈邮箱，请到项目仓库提 issue', 'error');
+      return;
+    }
     const subject = encodeURIComponent('【Gifts应用反馈】来自用户');
     const body = encodeURIComponent(feedbackText);
-    window.open(`mailto:2305427577@qq.com?subject=${subject}&body=${body}`, '_blank');
-    showToast('已打开邮件客户端', 'success');
+    // window.open is popup-blocked in most WebViews and returns null even on success,
+    // so navigate instead and don't claim the mail client actually opened.
+    window.location.href = `mailto:${DEVELOPER_EMAIL}?subject=${subject}&body=${body}`;
+    showToast(`如未自动打开邮件，请发送至 ${DEVELOPER_EMAIL}`, 'success');
     setFeedbackText('');
     setShowFeedback(false);
   };
@@ -265,7 +287,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--eye-bg-primary)]">
-      <header className="flex items-center p-4 pb-2 pt-safe-top justify-between sticky top-0 z-50 bg-[var(--eye-bg-primary)]/80 backdrop-blur-2xl border-b border-[var(--eye-border)]/50">
+      <header className="flex items-center p-4 pb-2 pt-safe-top justify-between sticky top-0 z-50 bg-eye-bg-primary/80 backdrop-blur-2xl border-b border-eye-border/50">
         <div className="w-12" />
         <h2 className="text-[var(--eye-text-primary)] text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
           我的
@@ -294,7 +316,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="relative flex items-center justify-center h-20 w-full mb-3">
               <div className="absolute left-1/2 -translate-x-[calc(50%+20px)] z-10">
                 <div
-                  className="w-16 h-16 rounded-full border-3 border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
+                  className="w-16 h-16 rounded-full border-[3px] border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
                   style={{
                     backgroundImage: `url('${currentAvatar}')`,
                   }}
@@ -305,7 +327,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div className="absolute left-1/2 -translate-x-[calc(50%-20px)] z-20">
                 <div
-                  className="w-16 h-16 rounded-full border-3 border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
+                  className="w-16 h-16 rounded-full border-[3px] border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
                   style={{
                     backgroundImage: `url('${partnerAvatar}')`,
                   }}
@@ -359,7 +381,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <Edit2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex items-center justify-between gap-2 bg-[var(--eye-bg-primary)]/50 rounded-xl p-3 border border-[var(--eye-border)]">
+              <div className="flex items-center justify-between gap-2 bg-eye-bg-primary/50 rounded-xl p-3 border border-[var(--eye-border)]">
                 <span className="text-[var(--eye-text-secondary)] text-sm">开始日期</span>
                 <span className="text-[var(--eye-text-primary)] font-mono font-bold">{togetherDate}</span>
               </div>
@@ -494,7 +516,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                     <button
                       onClick={handleFeedbackClick}
-                      className="rounded-2xl p-4 text-left border border-[var(--eye-border)] bg-[var(--eye-bg-primary)]/40 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col"
+                      className="rounded-2xl p-4 text-left border border-[var(--eye-border)] bg-eye-bg-primary/40 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col"
                     >
                       <div className="mb-3 size-11 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-500 text-white flex items-center justify-center shadow-md shrink-0">
                         <HelpCircle className="w-5 h-5" />
@@ -548,7 +570,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   已读
                 </button>
                 <button
-                  onClick={clearNotifications}
+                  onClick={handleClearNotifications}
                   className="h-8 px-2.5 rounded-lg text-[11px] sm:text-xs text-[var(--eye-text-secondary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex items-center gap-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -563,7 +585,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-gray-200 hide-scrollbar">
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 hide-scrollbar">
               {pendingBindingRequests.length === 0 && notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-[var(--eye-text-secondary)] opacity-60">
                   <Bell className="w-12 h-12 mb-3 stroke-1" />
@@ -725,17 +747,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-[var(--eye-text-secondary)]">开发者邮箱</p>
-                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">2305427577@qq.com</p>
+                <p className="text-sm font-semibold text-[var(--eye-text-primary)] truncate">
+                  {DEVELOPER_EMAIL || '未配置'}
+                </p>
               </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText('2305427577@qq.com');
-                  showToast('邮箱已复制', 'success');
-                }}
-                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0"
-              >
-                <Copy className="w-4 h-4 text-[var(--eye-text-secondary)]" />
-              </button>
+              {DEVELOPER_EMAIL && (
+                <button
+                  onClick={async () => {
+                    const copied = await copyText(DEVELOPER_EMAIL);
+                    showToast(copied ? '邮箱已复制' : '复制失败，请手动记录邮箱', copied ? 'success' : 'error');
+                  }}
+                  className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0"
+                >
+                  <Copy className="w-4 h-4 text-[var(--eye-text-secondary)]" />
+                </button>
+              )}
             </div>
 
             {/* Feedback textarea */}
@@ -744,7 +770,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onChange={(e) => setFeedbackText(e.target.value)}
               placeholder="请描述你遇到的问题或建议..."
               rows={4}
-              className="w-full rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] p-3 text-sm text-[var(--eye-text-primary)] placeholder:text-[var(--eye-text-secondary)]/50 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all"
+              className="w-full rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] p-3 text-sm text-[var(--eye-text-primary)] placeholder:text-eye-text-secondary/50 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all"
             />
 
             {/* Send button */}
@@ -757,12 +783,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </button>
 
             {/* Direct mailto link */}
-            <a
-              href="mailto:2305427577@qq.com?subject=%E3%80%90Gifts%E5%BA%94%E7%94%A8%E5%8F%8D%E9%A6%88%E3%80%91"
-              className="block text-center text-xs text-violet-500 mt-3 hover:underline"
-            >
-              或直接打开邮箱客户端发送
-            </a>
+            {DEVELOPER_EMAIL && (
+              <a
+                href={`mailto:${DEVELOPER_EMAIL}?subject=${encodeURIComponent('【Gifts应用反馈】')}`}
+                className="block text-center text-xs text-violet-500 mt-3 hover:underline"
+              >
+                或直接打开邮箱客户端发送
+              </a>
+            )}
           </div>
         </div>
       )}

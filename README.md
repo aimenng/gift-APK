@@ -124,8 +124,12 @@ XLGift 是一个面向情侣关系的「记录 + 同步 + 陪伴」应用。
 ### 前端
 
 - React + TypeScript + Vite
+- Tailwind CSS（构建期编译，配置见 `tailwind.config.js`）+ `index.css` 手写样式
 - Context 状态管理（`context.tsx` + `authContext.tsx`）
 - 组件化页面：Timeline、Anniversary、Focus、Profile、Auth、Connection
+
+> 样式不再依赖 `cdn.tailwindcss.com` 运行时编译。改完 `tailwind.config.js` 或 `index.css`
+> 需要重启 dev server —— Vite 不会热重载 PostCSS 配置。
 
 ### 后端
 
@@ -143,7 +147,7 @@ XLGift 是一个面向情侣关系的「记录 + 同步 + 陪伴」应用。
 
 ### 环境要求
 
-- Node.js 18+
+- Node.js 18+（跑 `npm run test:unit` 需要 22.6+）
 - npm 9+
 - Supabase 项目（含 URL 与 Service Role Key）
 
@@ -175,6 +179,21 @@ cp backend/.env.example backend/.env
 - Backend：`8787`
 - Frontend：`5173`
 
+可选：为特定邮箱保留固定邀请码。
+
+```env
+# backend/.env（已被 gitignore，不会进仓库）
+BACKEND_FIXED_INVITE_CODES=某人@example.com:ABC-DEF,另一人@example.com:GHI-JKL
+```
+
+留空则所有账号一律随机生成 `GIFT-XXXX`。这份映射以前是硬编码在 `helpers.js` 里的，
+公开仓库等于把真实邮箱和邀请码一起公布，所以移到了环境变量。
+数据库侧的格式约束需要执行 `migration_20261024_invite_code_constraint_from_env.sql`
+放开（旧约束把两个具体邮箱写死在了 CHECK 里）。
+
+> 注意：这两个邮箱和邀请码仍然存在于 **git 历史**中，改代码不能抹掉已推送的提交。
+> 如果介意，唯一的办法是在应用里重新生成邀请码。
+
 ### 3) 配置前端环境变量
 
 本地开发建议：
@@ -185,6 +204,32 @@ VITE_API_BASE_URL=/api
 ```
 
 Vite 会通过 `vite.config.ts` 将 `/api` 代理到 `http://localhost:8787`。
+
+生产构建 / Android 打包还需额外配置：
+
+```bash
+cp .env.production.example .env.production
+```
+
+`vite build` 跑的是 production 模式，只会加载 `.env.production`，**不会**加载 `.env.development`，
+也不会加载 `.env.android.example`（这个文件名 Vite 根本不认识）。
+所以打包 APK 前必须在 `.env.production` 里填一个手机真机能访问到的绝对地址：
+
+```env
+VITE_API_BASE_URL_MOBILE=https://你的后端域名/api
+```
+
+`npm run build:mobile` 会先执行 `npm run check:native-env` 校验这个地址，
+填错或没填会直接失败，避免打出一个所有接口都请求不通的 APK。
+只在安卓模拟器里调试时可以用 `ALLOW_EMULATOR_API_URL=1 npm run build:mobile` 跳过校验。
+
+> `.env.production` 会进仓库，只放公开域名，绝对不要放任何密钥
+> （尤其是 `SUPABASE_SERVICE_ROLE_KEY`，它只能待在 `backend/.env`）。
+
+「我的」页里的反馈邮箱从 `VITE_DEVELOPER_EMAIL` 读取。注意 **`VITE_` 开头的变量会被
+打进客户端产物**，所以这个邮箱要配在 Vercel 项目的环境变量里，或放在
+`.env.production.local`（已被 gitignore），不要写进任何会提交的文件。
+未配置时反馈入口会显示「未配置」并提示走仓库 issue，不会露出空地址。
 
 ### 4) 一键启动前后端
 
@@ -218,7 +263,17 @@ npm run dev:full
 | `npm run dev:full` | 同时启动前后端 |
 | `npm run build` | 前端生产构建 |
 | `npm run check:text-encoding` | 检查文本编码与乱码 |
-| `npm run build:mobile` | 构建 Web 并同步到 Android 工程 |
+| `npm run check:native-env` | 校验原生构建用的接口地址是否真机可达 |
+| `npm run test:unit` | 跑单元测试（需 Node ≥ 22.6，用到 Node 内置的 TS 类型擦除） |
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在每次 push 到 `main` 和每个 Pull Request 上跑同一套门禁：
+strict 类型检查、后端全部 js 的语法检查、单元测试、文本编码检查、生产构建，
+外加两条专项断言——构建产物不得再引用任何运行时 CDN（Tailwind/字体/esm.sh），
+以及 `check:native-env` 在缺配置时必须失败、在配置正确时必须通过。
+本地想提前自查，按同样顺序跑上面这几条命令即可。
+| `npm run build:mobile` | 构建 Web 并同步到 Android 工程（会先跑 `check:native-env`） |
 | `npm run android:sync` | 仅同步 Capacitor 到 Android |
 | `npm run android:open` | 用 Android Studio 打开工程 |
 
@@ -237,6 +292,9 @@ npm run dev:full
 ## Android 打包（XLGift）
 
 > 当前 Android 应用展示名已统一为：`XLGift`
+
+前置条件：先按上文配好 `.env.production` 里的 `VITE_API_BASE_URL_MOBILE`，
+否则 `build:mobile` 会在环境校验这一步直接失败（这是有意的，避免打出连不上后端的包）。
 
 ### Debug APK
 
@@ -297,6 +355,36 @@ cd android
 1. 确认 `vite.config.ts` 代理目标是 `http://localhost:8787`。
 2. 确认前端实际访问的是 `http://localhost:5173`。
 3. 如果改过端口，需同时改前端代理和后端 `PORT`。
+
+## 已知限制
+
+### 按 IP 的限流在 Serverless 上不生效
+
+`backend/src/app.js` 用 `express-rate-limit` 做的限流（`/api` 100 次/分、`/api/auth` 30 次/分、
+登录与验证码等敏感接口 5 次/分）计数存在 **Node 进程内存**里。部署到 Vercel 后每个
+lambda 实例各有一份计数，实例还会随时冷启动，所以这些限制在生产环境基本形同虚设。
+`appRoutes.js` 里的 POST 去重同理。
+
+真正拦得住的是**验证码尝试次数**：它记在数据库 `email_verifications.attempts` 上，
+并通过 `consume_verification_attempt` 这个 Postgres 函数在单条 UPDATE 里原子自增，
+所以并发请求会被行锁串行化，5 次上限是硬上限（修复前 50 个并发请求能全部通过校验）。
+
+如果以后要对外发布、需要真正按 IP 限流，有两个方向：
+
+- 接一个跨实例共享的存储（如 Upstash Redis），`express-rate-limit` 有现成 store 适配；
+- 或把敏感接口的计数也搬到数据库（和验证码尝试次数一样的做法），代价是每次请求多一次往返。
+
+### 字体只自托管拉丁字形，中文走系统字体
+
+`index.tsx` 通过 `@fontsource` 自托管了 Plus Jakarta Sans（400–800）与 Caveat
+（400–700）的 **latin 子集**，合计约 260 KB，`dist` 里已经没有任何外部 URL，
+APK 完全离线可用。
+
+中文字体（Noto Sans SC）**故意不打包**：整套中文字体有几十 MB，会把 APK 撑爆。
+`tailwind.config.js` 的 `fontFamily` 与 `index.css` 的 body 字体栈都显式列出了平台
+字体作为回退——Android 自带 Noto Sans CJK、Apple 平台是 PingFang SC、Windows 是
+微软雅黑。这些系统字体在各自平台上的渲染与 hinting 都比打包一个 webfont 更好，
+而且零字节成本。
 
 ## 仓库结构（简要）
 

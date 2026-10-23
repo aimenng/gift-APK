@@ -110,7 +110,6 @@ create table if not exists public.binding_requests (
   requester_user_id uuid not null references public.users(id) on delete cascade,
   target_user_id uuid not null references public.users(id) on delete cascade,
   invite_code text not null,
-  confirm_token text not null unique,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected', 'expired', 'cancelled')),
   expires_at timestamptz not null,
   confirmed_at timestamptz null,
@@ -126,6 +125,14 @@ update public.users set token_version = 0 where token_version is null;
 alter table public.users drop constraint if exists users_token_version_non_negative;
 alter table public.users add constraint users_token_version_non_negative check (token_version >= 0);
 
+-- Loose shape check only. The real policy (GIFT-XXXX plus any reserved codes configured
+-- via BACKEND_FIXED_INVITE_CODES) is enforced by assertInviteCode in the backend. Kept in
+-- sync with migration_20261024_invite_code_constraint_from_env.sql so a fresh install
+-- behaves like a migrated one.
+alter table public.users drop constraint if exists users_invitation_code_format_check;
+alter table public.users add constraint users_invitation_code_format_check
+  check (invitation_code is null or invitation_code ~ '^[A-Z0-9-]{4,16}$');
+
 create unique index if not exists idx_users_invitation_code_unique on public.users (invitation_code) where invitation_code is not null;
 create index if not exists idx_users_partner_id on public.users (partner_id);
 create index if not exists idx_users_bound_invitation_code on public.users (bound_invitation_code);
@@ -140,3 +147,109 @@ create index if not exists idx_email_verifications_expires_at on public.email_ve
 create unique index if not exists idx_binding_requests_requester_pending_unique on public.binding_requests (requester_user_id) where status = 'pending';
 create unique index if not exists idx_binding_requests_target_pending_unique on public.binding_requests (target_user_id) where status = 'pending';
 create index if not exists idx_binding_requests_pending_expires_at on public.binding_requests (expires_at) where status = 'pending';
+
+-- Atomic focus session completion. See migration_20261024_focus_session_atomic.sql for
+-- why the read-modify-write has to happen inside a single locked transaction.
+create or replace function public.complete_focus_session(
+  p_user_id uuid,
+  p_focus_minutes integer,
+  p_today date
+)
+returns public.focus_stats
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_row public.focus_stats%rowtype;
+  v_prev_date date;
+  v_prev_streak integer;
+  v_today_focus integer;
+  v_today_sessions integer;
+  v_streak integer;
+begin
+  if p_user_id is null then
+    raise exception 'p_user_id is required';
+  end if;
+
+  if p_focus_minutes is null or p_focus_minutes < 1 then
+    raise exception 'p_focus_minutes must be at least 1';
+  end if;
+
+  if p_today is null then
+    raise exception 'p_today is required';
+  end if;
+
+  select * into v_row
+    from public.focus_stats
+   where user_id = p_user_id
+     for update;
+
+  if not found then
+    insert into public.focus_stats (
+      user_id,
+      today_focus_minutes,
+      today_sessions,
+      streak,
+      total_sessions,
+      last_focus_date,
+      updated_at
+    ) values (
+      p_user_id, 0, 0, 0, 0, null, timezone('utc', now())
+    )
+    on conflict (user_id) do update
+       set user_id = excluded.user_id
+    returning * into v_row;
+
+    select * into v_row
+      from public.focus_stats
+     where user_id = p_user_id
+       for update;
+  end if;
+
+  v_prev_date := v_row.last_focus_date;
+  v_prev_streak := coalesce(v_row.streak, 0);
+
+  if v_prev_date = p_today then
+    v_today_focus := coalesce(v_row.today_focus_minutes, 0) + p_focus_minutes;
+    v_today_sessions := coalesce(v_row.today_sessions, 0) + 1;
+    v_streak := case when v_prev_streak > 0 then v_prev_streak else 1 end;
+  else
+    v_today_focus := p_focus_minutes;
+    v_today_sessions := 1;
+    v_streak := case
+                  when v_prev_date is not null and (p_today - v_prev_date) = 1
+                    then greatest(1, v_prev_streak + 1)
+                  else 1
+                end;
+  end if;
+
+  update public.focus_stats
+     set today_focus_minutes = v_today_focus,
+         today_sessions = v_today_sessions,
+         streak = v_streak,
+         total_sessions = coalesce(total_sessions, 0) + 1,
+         last_focus_date = p_today,
+         updated_at = timezone('utc', now())
+   where user_id = p_user_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- PostgREST caches the schema, so a brand new function can 404 on /rpc/ until it reloads.
+notify pgrst, 'reload schema';
+
+-- Atomic verification attempt counting. See
+-- migration_20261024_atomic_verification_attempts.sql for why this has to be one UPDATE.
+create or replace function public.consume_verification_attempt(p_id uuid)
+returns integer
+language sql
+set search_path = public
+as $$
+  update public.email_verifications
+     set attempts = coalesce(attempts, 0) + 1,
+         updated_at = timezone('utc', now())
+   where id = p_id
+  returning attempts;
+$$;

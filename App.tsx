@@ -18,7 +18,7 @@ import { AuthProvider } from './authContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 import { syncTime } from './utils/timeService';
-import { cleanupLegacyLocalDataOnce } from './utils/cloudStorageCleanup';
+import { archiveLegacyLocalDataOnce } from './utils/cloudStorageCleanup';
 
 type BootSplashState = 'visible' | 'hiding' | 'hidden';
 
@@ -118,7 +118,7 @@ const AppContent: React.FC = () => {
     currentView !== View.EDIT_PROFILE;
 
   return (
-    <Layout fullScreen={!showNav}>
+    <Layout>
       <div
         key={displayView}
         className={transitioning ? 'page-transition-exit' : 'page-transition-enter'}
@@ -135,7 +135,7 @@ const App: React.FC = () => {
   const [bootSplashState, setBootSplashState] = useState<BootSplashState>('visible');
 
   useEffect(() => {
-    cleanupLegacyLocalDataOnce();
+    archiveLegacyLocalDataOnce();
     syncTime();
     const interval = setInterval(() => syncTime(), 10 * 60 * 1000);
     return () => clearInterval(interval);

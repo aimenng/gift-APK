@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ChevronLeft,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../authContext';
 import { apiPatch } from '../utils/apiClient';
+import { getNow } from '../utils/timeService';
 import {
   fetchPeriodTrackerEntries,
   getCachedPeriodTrackerEntries,
@@ -97,7 +98,9 @@ const toDateKey = (date: Date) => {
 };
 
 const isFutureDate = (date: Date) => {
-  const today = new Date();
+  // Use the network-calibrated clock so this agrees with the anniversary pages, which
+  // already compare against getNow() rather than the possibly-skewed device clock.
+  const today = getNow().toDate();
   today.setHours(0, 0, 0, 0);
   const target = new Date(date);
   target.setHours(0, 0, 0, 0);
@@ -113,6 +116,14 @@ const normalizeMoodLabel = (value?: string | null): string | null => {
   if (CANONICAL_MOOD_LABELS.has(raw)) return raw;
 
   // Compatibility: handle historical mojibake and partial legacy mood values.
+  //
+  // Do not delete this until the database has been verified clean, e.g.:
+  //   select mood, count(*) from period_tracker_entries
+  //    where mood is not null
+  //      and mood not in ('开心','幸福','平静','难过','焦虑')
+  //    group by mood;
+  // Returning null here hides that day's mood in the UI, so removing the table while
+  // corrupted rows still exist would silently discard data the user can see today.
   if (
     raw.includes('\\u5f00') || raw.includes('\\u5fc3') ||
     raw.includes('\u5bee') || raw.includes('\u8e47') || raw.includes('\u7035')
@@ -179,6 +190,10 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Per-day sequence numbers so a slow response cannot overwrite a newer edit, plus an
+  // in-flight counter so the spinner only clears once every request has settled.
+  const saveSeqByDateRef = useRef(new Map<string, number>());
+  const inFlightSavesRef = useRef(0);
 
   const selectedDateKey = toDateKey(selectedDate);
   const ownSelected = ownData[selectedDateKey] || { isPeriod: false, mood: null, flow: null };
@@ -233,6 +248,12 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
 
   const persistOwnRecord = async (dateKey: string, next: DayRecord, previous: DayRecord | undefined) => {
     if (!currentUser?.id) return;
+
+    const seq = (saveSeqByDateRef.current.get(dateKey) || 0) + 1;
+    saveSeqByDateRef.current.set(dateKey, seq);
+    const isStale = () => saveSeqByDateRef.current.get(dateKey) !== seq;
+
+    inFlightSavesRef.current += 1;
     setSaving(true);
     setError('');
     try {
@@ -241,6 +262,9 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
         mood: next.mood,
         flow: next.flow,
       });
+      // Toggling mood quickly fires overlapping requests. Applying an older response
+      // would revert the record the user just made, so drop anything superseded.
+      if (isStale()) return;
       setOwnData((prev) => {
         const updated = { ...prev };
         if (!result.entry) {
@@ -261,6 +285,7 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
         entry: result.entry,
       });
     } catch (saveError: any) {
+      if (isStale()) return;
       setOwnData((prev) => {
         const rollback = { ...prev };
         if (previous) rollback[dateKey] = previous;
@@ -269,7 +294,11 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
       });
       setError(saveError?.message || '\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
     } finally {
-      setSaving(false);
+      inFlightSavesRef.current -= 1;
+      if (inFlightSavesRef.current <= 0) {
+        inFlightSavesRef.current = 0;
+        setSaving(false);
+      }
     }
   };
 
@@ -281,22 +310,21 @@ export const PeriodTracker: React.FC<PeriodTrackerProps> = ({ isOpen, onClose })
     if (isFutureDate(date)) return;
     const dateKey = toDateKey(date);
 
-    setOwnData((prev) => {
-      const previous = prev[dateKey];
-      const next = normalizeDayRecord(updater(previous || { isPeriod: false, mood: null, flow: null }));
-      if (sameDayRecord(previous, next)) return prev;
+    const previous = ownData[dateKey];
+    const next = normalizeDayRecord(updater(previous || { isPeriod: false, mood: null, flow: null }));
+    if (sameDayRecord(previous, next)) return;
 
+    setOwnData((prev) => {
       const updated = { ...prev };
       if (!next.isPeriod && !next.mood && !next.flow) {
         delete updated[dateKey];
       } else {
         updated[dateKey] = next;
       }
-
-      void persistOwnRecord(dateKey, next, previous);
-
       return updated;
     });
+
+    void persistOwnRecord(dateKey, next, previous);
   };
 
   const changeMonth = (delta: number) =>
