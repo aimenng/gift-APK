@@ -183,8 +183,8 @@ export const ConnectionPage: React.FC<ConnectionProps> = ({ onComplete, onLogin,
 
   return (
     <div className="flex flex-col h-full w-full px-4 pt-safe-top pb-6 animate-fade-in-up overflow-y-auto hide-scrollbar relative">
-      <div className="absolute top-12 -right-16 w-44 h-44 rounded-full bg-primary/8 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-16 -left-16 w-40 h-40 rounded-full bg-rose-400/8 blur-3xl pointer-events-none" />
+      <div className="absolute top-12 -right-16 w-44 h-44 rounded-full bg-primary/[0.08] blur-3xl pointer-events-none" />
+      <div className="absolute bottom-16 -left-16 w-40 h-40 rounded-full bg-rose-400/[0.08] blur-3xl pointer-events-none" />
 
       <header className="relative z-10 flex items-center justify-between py-3">
         <button
@@ -209,7 +209,7 @@ export const ConnectionPage: React.FC<ConnectionProps> = ({ onComplete, onLogin,
         </button>
       </header>
 
-      <section className="relative z-10 rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)]/70 p-3 mt-2">
+      <section className="relative z-10 rounded-2xl border border-[var(--eye-border)] bg-eye-bg-secondary/70 p-3 mt-2">
         {currentUser ? (
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-full border-2 border-white shadow-sm bg-stone-200 overflow-hidden relative shrink-0">
@@ -267,13 +267,13 @@ export const ConnectionPage: React.FC<ConnectionProps> = ({ onComplete, onLogin,
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl border border-[var(--eye-border)] bg-[var(--eye-bg-primary)]/70 p-3">
+          <div className="rounded-xl border border-[var(--eye-border)] bg-eye-bg-primary/70 p-3">
             <p className="text-[11px] text-[var(--eye-text-secondary)] mb-1">我的邀请码</p>
             <p className="font-mono font-bold text-[var(--eye-text-primary)] tracking-[0.16em] text-sm">
               {displayInviteCode || '生成中...'}
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--eye-border)] bg-[var(--eye-bg-primary)]/70 p-3">
+          <div className="rounded-xl border border-[var(--eye-border)] bg-eye-bg-primary/70 p-3">
             <p className="text-[11px] text-[var(--eye-text-secondary)] mb-1">已绑定邀请码</p>
             <p className="font-mono font-bold text-[var(--eye-text-primary)] tracking-[0.16em] text-sm">
               {boundInviteCode || '暂无'}
@@ -313,7 +313,7 @@ export const ConnectionPage: React.FC<ConnectionProps> = ({ onComplete, onLogin,
           {pendingBindingRequests.map((request) => (
             <div
               key={request.id}
-              className="rounded-xl border border-[var(--eye-border)] bg-[var(--eye-bg-primary)]/70 p-3"
+              className="rounded-xl border border-[var(--eye-border)] bg-eye-bg-primary/70 p-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">

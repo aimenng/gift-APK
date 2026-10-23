@@ -672,7 +672,7 @@ export const TimelinePage: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[var(--eye-bg-primary)]">
       <header className="relative w-full pt-safe-top z-40 shrink-0">
-        <div className="absolute inset-0 bg-[var(--eye-bg-primary)]/80 backdrop-blur-2xl border-b border-[var(--eye-border)] shadow-sm" />
+        <div className="absolute inset-0 bg-eye-bg-primary/80 backdrop-blur-2xl border-b border-[var(--eye-border)] shadow-sm" />
         <div className="relative flex items-center justify-between pt-4 pb-3 px-4">
           <div className="flex items-center gap-2 text-sage text-xs font-semibold bg-primary/5 rounded-full px-3 py-1">
             <Heart className="w-3 h-3 fill-current text-rose-400" />
@@ -734,7 +734,7 @@ export const TimelinePage: React.FC = () => {
       </header>
 
       {isBatchUploading && batchProgress.total > 0 && (
-        <div className="relative z-40 px-4 py-2 bg-[var(--eye-bg-primary)]/90 backdrop-blur-sm border-b border-[var(--eye-border)] shrink-0">
+        <div className="relative z-40 px-4 py-2 bg-eye-bg-primary/90 backdrop-blur-sm border-b border-[var(--eye-border)] shrink-0">
           <div className="flex items-center justify-between text-xs text-sage mb-1">
             <span className="font-semibold">{'\u5904\u7406\u4e2d...'}</span>
             <span className="tabular-nums font-bold text-primary">{batchProgress.current}/{batchProgress.total}</span>

@@ -53,9 +53,9 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const icons: Record<ToastType, React.ReactNode> = {
-    success: <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500 shrink-0" />,
-    error: <AlertCircle className="w-4.5 h-4.5 text-red-500 shrink-0" />,
-    love: <Heart className="w-4.5 h-4.5 text-rose-400 fill-current shrink-0" />,
+    success: <CheckCircle2 className="w-[1.125rem] h-[1.125rem] text-emerald-500 shrink-0" />,
+    error: <AlertCircle className="w-[1.125rem] h-[1.125rem] text-red-500 shrink-0" />,
+    love: <Heart className="w-[1.125rem] h-[1.125rem] text-rose-400 fill-current shrink-0" />,
   };
 
   const bgColors: Record<ToastType, string> = {

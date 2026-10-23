@@ -281,7 +281,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--eye-bg-primary)]">
-      <header className="flex items-center p-4 pb-2 pt-safe-top justify-between sticky top-0 z-50 bg-[var(--eye-bg-primary)]/80 backdrop-blur-2xl border-b border-[var(--eye-border)]/50">
+      <header className="flex items-center p-4 pb-2 pt-safe-top justify-between sticky top-0 z-50 bg-eye-bg-primary/80 backdrop-blur-2xl border-b border-eye-border/50">
         <div className="w-12" />
         <h2 className="text-[var(--eye-text-primary)] text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
           我的
@@ -310,7 +310,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="relative flex items-center justify-center h-20 w-full mb-3">
               <div className="absolute left-1/2 -translate-x-[calc(50%+20px)] z-10">
                 <div
-                  className="w-16 h-16 rounded-full border-3 border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
+                  className="w-16 h-16 rounded-full border-[3px] border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
                   style={{
                     backgroundImage: `url('${currentAvatar}')`,
                   }}
@@ -321,7 +321,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div className="absolute left-1/2 -translate-x-[calc(50%-20px)] z-20">
                 <div
-                  className="w-16 h-16 rounded-full border-3 border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
+                  className="w-16 h-16 rounded-full border-[3px] border-[var(--eye-bg-primary)] shadow-lg bg-gray-200 bg-cover bg-center ring-2 ring-primary/20"
                   style={{
                     backgroundImage: `url('${partnerAvatar}')`,
                   }}
@@ -375,7 +375,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <Edit2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex items-center justify-between gap-2 bg-[var(--eye-bg-primary)]/50 rounded-xl p-3 border border-[var(--eye-border)]">
+              <div className="flex items-center justify-between gap-2 bg-eye-bg-primary/50 rounded-xl p-3 border border-[var(--eye-border)]">
                 <span className="text-[var(--eye-text-secondary)] text-sm">开始日期</span>
                 <span className="text-[var(--eye-text-primary)] font-mono font-bold">{togetherDate}</span>
               </div>
@@ -510,7 +510,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                     <button
                       onClick={handleFeedbackClick}
-                      className="rounded-2xl p-4 text-left border border-[var(--eye-border)] bg-[var(--eye-bg-primary)]/40 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col"
+                      className="rounded-2xl p-4 text-left border border-[var(--eye-border)] bg-eye-bg-primary/40 transition-all hover:-translate-y-0.5 hover:shadow-soft min-h-[126px] flex flex-col"
                     >
                       <div className="mb-3 size-11 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-500 text-white flex items-center justify-center shadow-md shrink-0">
                         <HelpCircle className="w-5 h-5" />
@@ -579,7 +579,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-gray-200 hide-scrollbar">
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 hide-scrollbar">
               {pendingBindingRequests.length === 0 && notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-[var(--eye-text-secondary)] opacity-60">
                   <Bell className="w-12 h-12 mb-3 stroke-1" />
@@ -760,7 +760,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onChange={(e) => setFeedbackText(e.target.value)}
               placeholder="请描述你遇到的问题或建议..."
               rows={4}
-              className="w-full rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] p-3 text-sm text-[var(--eye-text-primary)] placeholder:text-[var(--eye-text-secondary)]/50 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all"
+              className="w-full rounded-2xl border border-[var(--eye-border)] bg-[var(--eye-bg-secondary)] p-3 text-sm text-[var(--eye-text-primary)] placeholder:text-eye-text-secondary/50 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition-all"
             />
 
             {/* Send button */}

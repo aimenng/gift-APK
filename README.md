@@ -346,24 +346,17 @@ lambda 实例各有一份计数，实例还会随时冷启动，所以这些限�
 - 接一个跨实例共享的存储（如 Upstash Redis），`express-rate-limit` 有现成 store 适配；
 - 或把敏感接口的计数也搬到数据库（和验证码尝试次数一样的做法），代价是每次请求多一次往返。
 
-### 字体依赖 Google Fonts CDN
+### 字体只自托管拉丁字形，中文走系统字体
 
-`index.html` 仍从 `fonts.googleapis.com` 加载 Plus Jakarta Sans / Caveat / Noto Sans SC。
-国内网络受阻时会退回 `index.css` 里声明的 PingFang SC / Microsoft YaHei 系统字体，
-功能不受影响，但手写体等设计感会丢失。彻底解决需要自托管字体。
+`index.tsx` 通过 `@fontsource` 自托管了 Plus Jakarta Sans（400–800）与 Caveat
+（400–700）的 **latin 子集**，合计约 260 KB，`dist` 里已经没有任何外部 URL，
+APK 完全离线可用。
 
-### 一批 Tailwind 类名从未生效
-
-Tailwind v3 默认标度里不存在这些值，所以它们一直没有产出任何 CSS：
-
-- `bg-[var(--eye-*)]/NN` 形式（如 `bg-[var(--eye-bg-primary)]/85`）—— Tailwind 无法为
-  未知的 CSS 变量颜色算出 alpha 通道，所以底部导航、启动屏、弹窗遮罩等元素实际是全透明的。
-  正确修法是把 `--eye-*` 改成裸 RGB 通道并配 `<alpha-value>` 注册进 `tailwind.config.js`。
-- `w-4.5` / `h-4.5`（Toast、Auth 的图标，实际按 lucide 默认 24px 渲染）、`h-13`、
-  `border-3`、`bg-primary/8`、`bg-rose-400/8`。
-- `scrollbar-thin` / `scrollbar-thumb-gray-200` 需要未安装的 `tailwind-scrollbar` 插件。
-
-修好它们会改变现有视觉（图标变小、遮罩出现），所以暂未处理。
+中文字体（Noto Sans SC）**故意不打包**：整套中文字体有几十 MB，会把 APK 撑爆。
+`tailwind.config.js` 的 `fontFamily` 与 `index.css` 的 body 字体栈都显式列出了平台
+字体作为回退——Android 自带 Noto Sans CJK、Apple 平台是 PingFang SC、Windows 是
+微软雅黑。这些系统字体在各自平台上的渲染与 hinting 都比打包一个 webfont 更好，
+而且零字节成本。
 
 ## 仓库结构（简要）
 

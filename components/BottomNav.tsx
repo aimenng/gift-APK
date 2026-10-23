@@ -10,7 +10,7 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onChangeView }) => {
   return (
     <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none w-full">
-      <div className="absolute inset-0 bg-[var(--eye-bg-primary)]/85 backdrop-blur-2xl border-t border-[var(--eye-border)] pointer-events-auto h-full pb-safe-bottom shadow-[0_-4px_20px_rgba(0,0,0,0.03)]" />
+      <div className="absolute inset-0 bg-eye-bg-primary/85 backdrop-blur-2xl border-t border-[var(--eye-border)] pointer-events-auto h-full pb-safe-bottom shadow-[0_-4px_20px_rgba(0,0,0,0.03)]" />
 
       <nav className="relative pointer-events-auto grid grid-cols-4 items-end px-2 pt-2 pb-safe-bottom w-full" aria-label="主导航">
         <NavItem

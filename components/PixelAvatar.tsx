@@ -784,7 +784,7 @@ export const PixelAvatarShowcase: React.FC<PixelAvatarShowcaseProps> = ({ isOpen
               className={`w-2 h-2 rounded-full transition-all ${
                 i === activeIndex
                   ? 'bg-[var(--eye-text-primary)] scale-125'
-                  : 'bg-[var(--eye-text-secondary)]/30'
+                  : 'bg-eye-text-secondary/30'
               }`}
             />
           ))}

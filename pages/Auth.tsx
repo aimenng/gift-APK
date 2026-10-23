@@ -443,7 +443,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
               setActiveTab('login');
               setShowForm(true);
             }}
-            className="w-full max-w-xs h-13 rounded-2xl bg-primary text-white font-bold text-lg shadow-lg shadow-primary/20 active:scale-[0.97] transition-all hover:bg-[#7a8a4b] flex items-center justify-center gap-2.5 mb-4"
+            className="w-full max-w-xs h-[3.25rem] rounded-2xl bg-primary text-white font-bold text-lg shadow-lg shadow-primary/20 active:scale-[0.97] transition-all hover:bg-[#7a8a4b] flex items-center justify-center gap-2.5 mb-4"
           >
             <LogIn className="w-5 h-5" />
             立即登录
@@ -457,7 +457,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
             }}
             className="w-full max-w-xs h-12 rounded-2xl bg-[var(--eye-bg-secondary)] border border-[var(--eye-border)] text-[var(--eye-text-primary)] font-medium text-base active:scale-[0.97] transition-all hover:border-primary/30 flex items-center justify-center gap-2"
           >
-            <UserPlus className="w-4.5 h-4.5" />
+            <UserPlus className="w-[1.125rem] h-[1.125rem]" />
             注册新账号
           </button>
         </div>

@@ -195,7 +195,7 @@ export const AnniversaryPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full">
-      <header className="flex items-center justify-between p-4 pb-2 pt-safe-top sticky top-0 z-10 bg-[var(--eye-bg-primary)]/80 backdrop-blur-2xl border-b border-[var(--eye-border)] shrink-0">
+      <header className="flex items-center justify-between p-4 pb-2 pt-safe-top sticky top-0 z-10 bg-eye-bg-primary/80 backdrop-blur-2xl border-b border-[var(--eye-border)] shrink-0">
         <div className="size-10 flex items-center justify-center" title={timeSynced ? '时间已校准' : '使用本地时间'}>
           {timeSynced ? (
             <Wifi className="w-4 h-4 text-green-500" />
