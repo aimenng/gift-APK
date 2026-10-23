@@ -55,7 +55,14 @@ export const fetchFocusStats = async ({
     return inFlightPromise;
   }
 
-  cacheUserId = userId;
+  if (cacheUserId !== userId) {
+    // Switching account must drop the previous stats immediately. Assigning only the id
+    // while the old data is still cached would let getCachedFocusStats and the .catch
+    // fallback serve one user's focus stats under another user's id.
+    cacheUserId = userId;
+    cachedStats = null;
+    cachedAt = 0;
+  }
   inFlightUserId = userId;
 
   const request = apiGet<FocusStatsResponse>('/focus/stats')
@@ -67,8 +74,10 @@ export const fetchFocusStats = async ({
         totalSessions: 0,
         lastFocusDate: null,
       };
-      cachedStats = stats;
-      cachedAt = Date.now();
+      if (cacheUserId === userId) {
+        cachedStats = stats;
+        cachedAt = Date.now();
+      }
       return stats;
     })
     .catch((error) => {

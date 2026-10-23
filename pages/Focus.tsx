@@ -5,6 +5,7 @@ import { TimerDisplay } from '../components/focus/TimerDisplay';
 import { SettingsPanel } from '../components/focus/SettingsPanel';
 import { useAuth } from '../authContext';
 import { apiPatch } from '../utils/apiClient';
+import { flushPendingFocusSessions, queueFocusSession } from '../utils/focusPendingSessions';
 import {
   type CloudFocusStats,
   fetchFocusStats,
@@ -252,6 +253,19 @@ export const FocusPage: React.FC = () => {
         const latest = await fetchFocusStats({ userId, force: Boolean(cached) });
         if (cancelled) return;
         setStats(normalizeStats(latest));
+
+        // The API is reachable, so retry any session whose upload failed earlier.
+        const flushed = await flushPendingFocusSessions(async (focusMinutes) => {
+          const result = await apiPatch<CompleteFocusStatsResponse>('/focus/stats/complete-session', {
+            focusMinutes,
+          });
+          if (cancelled) return;
+          setStats(normalizeStats(result.stats));
+          updateFocusStatsCache(userId, result.stats);
+        });
+        if (flushed > 0 && !cancelled) {
+          setStatsError('');
+        }
       } catch (error: any) {
         if (cancelled) return;
         console.error('Failed to load focus stats:', error);
@@ -355,7 +369,18 @@ export const FocusPage: React.FC = () => {
         setStatsError('');
       } catch (error: any) {
         console.error('Failed to sync focus stats:', error);
-        setStatsError(mapFocusStatsErrorMessage(error, '同步专注统计失败'));
+        // The timer state has already been cleared locally, so without a retry queue these
+        // minutes would simply vanish. Only queue when the server may never have seen the
+        // request — a 4xx means it definitively rejected it and retrying cannot help.
+        const status = Number(error?.status);
+        const mayNotHaveLanded =
+          !Number.isFinite(status) || status === 0 || status === 408 || status >= 500;
+        if (mayNotHaveLanded) {
+          queueFocusSession(sessionMinutes);
+          setStatsError('本次专注已保存，将在网络恢复后自动补报');
+        } else {
+          setStatsError(mapFocusStatsErrorMessage(error, '同步专注统计失败'));
+        }
       }
 
       if ('vibrate' in navigator) {

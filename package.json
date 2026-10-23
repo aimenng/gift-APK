@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "check:text-encoding": "node scripts/check-text-encoding.mjs",
     "check:native-env": "node scripts/check-native-env.mjs",
+    "test:unit": "node scripts/test-focus-pending-sessions.mjs",
     "build:mobile": "npm run check:native-env && npm run build && npx cap sync android",
     "android:sync": "npx cap sync android",
     "android:open": "npx cap open android",

@@ -147,7 +147,7 @@ XLGift 是一个面向情侣关系的「记录 + 同步 + 陪伴」应用。
 
 ### 环境要求
 
-- Node.js 18+
+- Node.js 18+（跑 `npm run test:unit` 需要 22.6+）
 - npm 9+
 - Supabase 项目（含 URL 与 Service Role Key）
 
@@ -244,6 +244,7 @@ npm run dev:full
 | `npm run build` | 前端生产构建 |
 | `npm run check:text-encoding` | 检查文本编码与乱码 |
 | `npm run check:native-env` | 校验原生构建用的接口地址是否真机可达 |
+| `npm run test:unit` | 跑单元测试（需 Node ≥ 22.6，用到 Node 内置的 TS 类型擦除） |
 | `npm run build:mobile` | 构建 Web 并同步到 Android 工程（会先跑 `check:native-env`） |
 | `npm run android:sync` | 仅同步 Capacitor 到 Android |
 | `npm run android:open` | 用 Android Studio 打开工程 |

@@ -68,14 +68,24 @@ export const fetchPeriodTrackerEntries = async ({
     return inFlightPromise;
   }
 
-  cacheKey = key;
+  if (cacheKey !== key) {
+    // Switching account (or partner pairing) must drop the previous entries immediately.
+    // Assigning only the key while the old data is still cached would let
+    // getCachedPeriodTrackerEntries and the .catch fallback serve one user's
+    // period/mood records under another user's id.
+    cacheKey = key;
+    cachedEntries = null;
+    cachedAt = 0;
+  }
   inFlightKey = key;
 
   const request = apiGet<TrackerResponse>('/period-tracker')
     .then((result) => {
       const entries = Array.isArray(result.entries) ? result.entries : [];
-      cachedEntries = entries;
-      cachedAt = Date.now();
+      if (cacheKey === key) {
+        cachedEntries = entries;
+        cachedAt = Date.now();
+      }
       return entries;
     })
     .catch((error) => {
