@@ -1,0 +1,6 @@
+# Shell scripts must keep LF line endings everywhere. With core.autocrlf=true (the default
+# on Windows) a CRLF checkout would break the shebang — `#!/usr/bin/env bash\r` makes the
+# kernel look for an interpreter literally named "bash\r". The psql fixture is included
+# because it is executed as a command, not passed to an interpreter.
+*.sh text eol=lf
+scripts/test-fixtures/psql text eol=lf
