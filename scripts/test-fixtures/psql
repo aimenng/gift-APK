@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 测试用的桩 psql：记录调用、维护假账本，不连任何数据库。
 # 通过把本目录放到 PATH 最前面来顶替真正的 psql。
+#
+# 关键：这个桩要**忠实模拟真 psql 的行为**，否则测试通过而真机失败。
+# 已踩过的坑：psql 不对 `-c` 传入的字符串做变量插值，`values (:'v')` 会被原样
+# 发给服务端并报 syntax error。桩必须复现这一点，而不是好心帮脚本把变量补上。
 set -uo pipefail
 
 STATE="${STUB_STATE:?STUB_STATE not set}"
@@ -30,7 +34,22 @@ stdin_data=""
 if [ ! -t 0 ]; then
   stdin_data="$(cat)"
 fi
-combined="$sql$stdin_data"
+
+q="'"
+
+# —— -c 路径：真 psql 不在这里做变量插值，遇到 :'v' 会原样发出去并失败 ——
+if [ -n "$sql" ]; then
+  if printf '%s' "$sql" | grep -qE ":'?[A-Za-z_][A-Za-z0-9_]*"; then
+    echo "[stub] ERROR:  syntax error at or near \":\"" >&2
+    echo "[stub] psql -c does not interpolate variables; feed the statement through stdin instead" >&2
+    exit 1
+  fi
+fi
+
+# —— stdin 路径：真 psql 在这里做变量插值 ——
+if [ -n "$stdin_data" ] && [ -n "$psql_var" ]; then
+  stdin_data="$(printf '%s' "$stdin_data" | sed "s/:${q}v${q}/${q}${psql_var}${q}/g")"
+fi
 
 if [ -n "$file" ]; then
   base="$(basename "$file")"
@@ -44,17 +63,21 @@ if [ -n "$file" ]; then
   exit 0
 fi
 
+combined="$sql$stdin_data"
+
 case "$combined" in
   *"select version from public.schema_migrations"*)
     [ -f "$STATE" ] && cat "$STATE"
     exit 0
     ;;
   *"insert into public.schema_migrations"*)
-    if [ -z "$psql_var" ]; then
-      echo "[stub] insert without -v v=... ; refusing" >&2
+    # 从（已插值的）语句里取出 values ('...') 的值，模拟数据库真正落库的内容。
+    version="$(printf '%s' "$combined" | sed -n "s/.*values (${q}\\([^${q}]*\\)${q}).*/\\1/p" | head -1)"
+    if [ -z "$version" ]; then
+      echo "[stub] could not parse the version out of: $combined" >&2
       exit 1
     fi
-    echo "$psql_var" >> "$STATE"
+    echo "$version" >> "$STATE"
     exit 0
     ;;
   *"create table if not exists public.schema_migrations"*)

@@ -78,9 +78,11 @@ is_applied() {
 }
 
 record() {
-  psql "$SUPABASE_DB_URL" -q -v ON_ERROR_STOP=1 \
-    -v "v=$1" \
-    -c "insert into public.schema_migrations (version) values (:'v') on conflict (version) do nothing"
+  # psql 不对 `-c` 传入的字符串做变量插值，`values (:'v')` 会被原样发给服务端并报
+  # `syntax error at or near ":"`（确实踩过）。改成从 stdin 送入，psql 才会把 :'v'
+  # 替换成被正确引用和转义的字符串字面量。
+  printf "insert into public.schema_migrations (version) values (:'v') on conflict (version) do nothing;\n" \
+    | psql "$SUPABASE_DB_URL" -q -v ON_ERROR_STOP=1 -v "v=$1"
 }
 
 pending=()

@@ -111,7 +111,14 @@ check "未知模式被拒绝" "$([ $rc -ne 0 ] && echo 1 || echo 0)" "rc=$rc"
 check "提示可用模式" "$(grep -q 'list / apply / bootstrap' <<<"$out" && echo 1 || echo 0)"
 
 echo
-echo "[6] 输出不泄露连接串里的密码"
+echo "[6] 没有把 psql 变量塞进 -c 字符串"
+# 真 psql 不对 -c 的字符串做变量插值：`-c "... values (:'v')"` 会被原样发给服务端并报
+# syntax error。这个 bug 真实发生过一次，而当时的桩「好心」帮脚本补了变量，所以没测出来。
+bad="$(grep -n -- '-c "' "$SCRIPT" | grep ":'" || true)"
+check "脚本里没有 -c + 变量组合" "$([ -z "$bad" ] && echo 1 || echo 0)" "$bad"
+
+echo
+echo "[7] 输出不泄露连接串里的密码"
 reset_state
 cd "$REPO_ROOT" && bash "$SCRIPT" list > "$WORK/out.txt" 2>&1
 check "不含密码" "$(! grep -q 'secret' "$WORK/out.txt" && echo 1 || echo 0)" "$(cat "$WORK/out.txt")"
