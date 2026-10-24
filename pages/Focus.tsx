@@ -255,7 +255,8 @@ export const FocusPage: React.FC = () => {
         setStats(normalizeStats(latest));
 
         // The API is reachable, so retry any session whose upload failed earlier.
-        const flushed = await flushPendingFocusSessions(async (focusMinutes) => {
+        // Only this account's entries are touched; the queue is shared per device.
+        const flushed = await flushPendingFocusSessions(userId, async (focusMinutes) => {
           const result = await apiPatch<CompleteFocusStatsResponse>('/focus/stats/complete-session', {
             focusMinutes,
           });
@@ -376,7 +377,7 @@ export const FocusPage: React.FC = () => {
         const mayNotHaveLanded =
           !Number.isFinite(status) || status === 0 || status === 408 || status >= 500;
         if (mayNotHaveLanded) {
-          queueFocusSession(sessionMinutes);
+          queueFocusSession(currentUser.id, sessionMinutes);
           setStatsError('本次专注已保存，将在网络恢复后自动补报');
         } else {
           setStatsError(mapFocusStatsErrorMessage(error, '同步专注统计失败'));

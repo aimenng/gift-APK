@@ -5,6 +5,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from './utils/apiClien
 import { getAuthToken } from './utils/authToken';
 import { onSessionSync, triggerSessionSync } from './utils/sessionSync';
 import { getNow } from './utils/timeService';
+import { collectRemainingPages } from './utils/memoryPagination';
 
 interface ConnectResult {
   ok: boolean;
@@ -28,6 +29,8 @@ interface PendingBindingRequest {
 interface AppContextType {
   memories: Memory[];
   yearStats: YearStat[];
+  /** True when the timeline holds only the newest slice because the page cap was reached. */
+  memoriesTruncated: boolean;
   addMemory: (memory: Omit<Memory, 'id' | 'rotation'>) => Promise<void>;
   addMemoriesBatch: (memories: Array<Omit<Memory, 'id' | 'rotation'>>) => Promise<number>;
   updateMemory: (id: string, updates: Partial<Omit<Memory, 'id'>>) => Promise<void>;
@@ -243,6 +246,7 @@ const buildAdaptiveMemoryChunks = (items: Array<Omit<Memory, 'id' | 'rotation'>>
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [yearStats, setYearStats] = useState<YearStat[]>([]);
+  const [memoriesTruncated, setMemoriesTruncated] = useState(false);
   const [events, setEvents] = useState<AnniversaryEvent[]>([]);
   const [connectionState, setConnectionState] = useState<{
     isConnected: boolean;
@@ -288,6 +292,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!token) {
         setMemories([]);
         setYearStats([]);
+        setMemoriesTruncated(false);
         setEvents([]);
         setConnectionState(DEFAULT_CONNECTION);
         setPendingBindingRequests([]);
@@ -335,56 +340,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      if (!shouldRunFullSync || !firstPage.memoryPagination?.hasMore) {
+      if (!shouldRunFullSync) {
+        return;
+      }
+      if (!firstPage.memoryPagination?.hasMore) {
+        // Everything fit on the first page, so the list below is complete.
+        setMemoriesTruncated(false);
         return;
       }
       lastFullSyncAtRef.current = Date.now();
 
       // Fetch remaining pages in the background to keep login/navigation responsive.
-      // `totalPages` from an includeCount=0 response is only a guess, so keep paging
-      // until a page comes back short instead of trusting it.
+      // `totalPages` from an includeCount=0 response is only a guess, so the walk keeps
+      // paging until a page comes back short instead of trusting it.
       void (async () => {
-        const allMemories = [...firstPageMemories];
-        let nextPage = 2;
-        // Probe the first extra page alone — most libraries fit in two pages, and this
-        // avoids firing a full parallel chunk on every sync when there is nothing to fetch.
-        let chunkSize = 1;
-
-        while (nextPage <= CLOUD_SYNC_MAX_PAGES) {
-          if (syncEpochRef.current !== syncEpoch) return;
-
-          const pageCount = Math.min(chunkSize, CLOUD_SYNC_MAX_PAGES - nextPage + 1);
-          const chunk = Array.from({ length: pageCount }, (_, idx) => nextPage + idx);
-          const chunkResults = await Promise.all(
-            chunk.map((page) =>
-              apiGet<MemoriesPageResponse>(
-                `/memories?page=${page}&limit=${CLOUD_SYNC_PAGE_SIZE}&includeCount=0`
-              )
-            )
-          );
-
-          let reachedLastPage = false;
-          for (const next of chunkResults) {
-            const rows = next?.memories || [];
-            allMemories.push(...rows);
-            if (rows.length < CLOUD_SYNC_PAGE_SIZE) {
-              reachedLastPage = true;
-              break;
-            }
-          }
-
-          if (syncEpochRef.current !== syncEpoch) return;
-          if (allMemories.length !== firstPageMemories.length) {
-            setMemories(allMemories);
+        const result = await collectRemainingPages<Memory>({
+          firstPageItems: firstPageMemories,
+          pageSize: CLOUD_SYNC_PAGE_SIZE,
+          maxPages: CLOUD_SYNC_MAX_PAGES,
+          chunkSize: CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE,
+          fetchPage: async (page) => {
+            const response = await apiGet<MemoriesPageResponse>(
+              `/memories?page=${page}&limit=${CLOUD_SYNC_PAGE_SIZE}&includeCount=0`
+            );
+            return response?.memories || [];
+          },
+          onChunk: (items) => {
+            if (items.length === firstPageMemories.length) return;
+            setMemories(items);
             if (!serverYearStats) {
-              setYearStats(computeYearStatsFromMemories(allMemories));
+              setYearStats(computeYearStatsFromMemories(items));
             }
-          }
+          },
+          isActive: () => syncEpochRef.current === syncEpoch,
+        });
 
-          if (reachedLastPage) return;
-          nextPage += pageCount;
-          chunkSize = CLOUD_EXTRA_PAGE_FETCH_CHUNK_SIZE;
-        }
+        if (result.aborted) return;
+        // true only when the walk stopped at the page cap with pages still coming back
+        // full, i.e. older memories exist on the server but are not in this list.
+        setMemoriesTruncated(result.truncated);
       })().catch((error) => {
         console.error('Failed to hydrate extra memory pages:', error);
       });
@@ -393,6 +387,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setHasCloudSession(false);
         setMemories([]);
         setYearStats([]);
+        setMemoriesTruncated(false);
         setEvents([]);
         setConnectionState(DEFAULT_CONNECTION);
         setPendingBindingRequests([]);
@@ -758,6 +753,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         memories,
         yearStats,
+        memoriesTruncated,
         addMemory,
         addMemoriesBatch,
         updateMemory,

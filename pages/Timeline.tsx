@@ -141,6 +141,7 @@ export const TimelinePage: React.FC = () => {
   const {
     memories,
     yearStats,
+    memoriesTruncated,
     events,
     addMemory,
     addMemoriesBatch,
@@ -745,6 +746,16 @@ export const TimelinePage: React.FC = () => {
               style={{ width: `${Math.round((batchProgress.current / batchProgress.total) * 100)}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {memoriesTruncated && (
+        <div className="relative z-40 px-4 py-2 bg-eye-bg-primary/90 backdrop-blur-sm border-b border-[var(--eye-border)] shrink-0">
+          <p className="text-[11px] leading-relaxed text-sage">
+            回忆太多，这里只加载了最近
+            <span className="font-bold text-primary tabular-nums"> {memories.length} </span>
+            条。更早的记录仍然保存在云端，没有被删除。
+          </p>
         </div>
       )}
 
