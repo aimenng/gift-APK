@@ -254,6 +254,46 @@ npm run dev:full
 1. 执行 `backend/supabase/` 下对应迁移文件。
 2. 建议按文件名日期顺序执行（`migration_YYYYMMDD_*.sql`）。
 
+### 用 GitHub Actions 跑迁移（推荐，免去手工复制粘贴）
+
+仓库里有 `.github/workflows/db-migrate.yml`，手动触发，不会在合并 PR 时自动执行。
+
+**一次性配置：** 到 Supabase 控制台 → Settings → Database → Connection string →
+**Session pooler**，复制 URI（把 `[YOUR-PASSWORD]` 换成数据库密码），然后到 GitHub
+仓库 → Settings → Secrets and variables → Actions → New repository secret，
+名字填 `SUPABASE_DB_URL`，值粘贴刚才的连接串。
+
+> 一定要用 **Session pooler**（端口 5432），不要用 Transaction pooler——
+> 后者不支持部分 DDL，迁移会中途失败。直连地址在新项目上是 IPv6 的，
+> GitHub 的执行机连不上。
+
+**日常使用：**
+
+1. Actions 页面左侧点 **Supabase migrations** → 右侧 **Run workflow**。
+2. `mode` 保持默认的 **list**，点绿色的 Run。它只读，会列出「已应用几个 / 待执行哪些」。
+3. 确认清单没问题，再 Run 一次，`mode` 选 **apply**。
+
+**首次接入自动化时必须先跑一次 bootstrap。** 因为在此之前所有 migration 都是在
+SQL Editor 里手工执行的，账本表 `schema_migrations` 是空的；直接 apply 会把它们全部
+重跑一遍，而 `migration_20260211` 的严格邀请码约束会因为库里已有 `XXX-XXX` 形式的码
+而失败。bootstrap 只把这些文件标记为「已应用」，不执行任何 SQL：
+
+1. `mode` 选 **bootstrap** → Run。输出会列出被标记的 12 个文件。
+2. 之后再按上面的流程用 list / apply。
+
+**工作原理：** 脚本 `scripts/apply-supabase-migrations.sh` 维护一张
+`public.schema_migrations` 账本表（已启用 RLS 且无策略，与 lockdown 迁移一致，
+匿名客户端读写不了）。apply 时按文件名顺序挑出未记录的文件，每个文件单独一个
+`psql` 会话执行（文件内部自带 `begin/commit`），**执行成功后才写入账本**；
+任何一个失败立即中止，不会继续往下跑，也不会留下半截记录。全部成功后会执行一次
+`notify pgrst, 'reload schema'`，让接口立刻识别新增或替换的函数。
+
+本地也可以直接跑（需要装了 `psql`）：
+
+```bash
+SUPABASE_DB_URL='postgresql://...' bash scripts/apply-supabase-migrations.sh list
+```
+
 ## 常用脚本
 
 | 命令 | 说明 |

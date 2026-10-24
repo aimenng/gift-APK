@@ -253,3 +253,13 @@ as $$
    where id = p_id
   returning attempts;
 $$;
+
+-- Applied-migration ledger for scripts/apply-supabase-migrations.sh. Declared here as well
+-- so a database created from schema.sql can use the migration workflow immediately; the
+-- script also creates it idempotently. RLS is enabled with no policies, matching the
+-- lockdown migration — only the backend service role and direct psql may touch it.
+create table if not exists public.schema_migrations (
+  version text primary key,
+  applied_at timestamptz not null default timezone('utc', now())
+);
+alter table public.schema_migrations enable row level security;
